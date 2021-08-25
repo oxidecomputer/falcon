@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=${prefix}
+includedir=/usr/include
+libdir=/usr/lib
+
+Name: ZFS core
+Description: ZFS core library
+URL: https://illumos.org
+Version: 5.11
+Cflags: -I${includedir}
+Libs: -L${libdir} -lzfs_core

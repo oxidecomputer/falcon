@@ -1,0 +1,19 @@
+[package]
+name = "libfalcon"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1.0"
+anyhow = "1.0"
+zfs-core = "0.5"
+nvpair = "0.5"
+zone = "0.1.8"
+regex = "1.5"
+smf = "0.2"
+#libdladm-sys = { path = "/home/ry/src/libdladm-sys" }
+
+[build-dependencies]
+bindgen = "0.59"
