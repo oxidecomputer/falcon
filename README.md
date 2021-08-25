@@ -9,6 +9,14 @@ testing and as a development environment for networked systems.
 **For Falcon to work, you will need to be running a libdladm with this patch**
 - https://code.illumos.org/c/illumos-gate/+/1668
 
+Currently the nightly toolchain is required.
+
+When importing on illumos the following is required in `.cargo/config.toml`
+```toml
+[env]
+LIBZFS_CORE_LOOKUP_WITH = "link"
+```
+
 ## Using from Rust tests
 
 This workflow is useful for automated testing.

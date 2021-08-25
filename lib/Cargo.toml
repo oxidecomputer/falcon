@@ -8,12 +8,12 @@ edition = "2018"
 [dependencies]
 thiserror = "1.0"
 anyhow = "1.0"
-zfs-core = "0.5"
-nvpair = "0.5"
+# https://github.com/jmesmon/rust-libzfs/pull/71
+zfs-core = { git = "https://github.com/oxidecomputer/rust-libzfs" }
+nvpair = { git = "https://github.com/oxidecomputer/rust-libzfs" }
 zone = "0.1.8"
 regex = "1.5"
 smf = "0.2"
-#libdladm-sys = { path = "/home/ry/src/libdladm-sys" }
 
 [build-dependencies]
 bindgen = "0.59"
