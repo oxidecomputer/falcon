@@ -3,6 +3,12 @@
 use crate::Deployment;
 use std::{env, process};
 
+pub enum RunMode {
+    Launch,
+    Destroy,
+    Error,
+}
+
 /// Entry point for a command line application. Will parse command line
 /// arguments and take actions accordingly.
 ///
@@ -22,7 +28,7 @@ use std::{env, process};
 ///     run(&mut d);
 /// }
 /// ```
-pub fn run(d: &mut Deployment) {
+pub fn run(d: &mut Deployment) -> RunMode {
     d.persistent = true;
 
     let args: Vec<String> = env::args().collect();
@@ -32,9 +38,18 @@ pub fn run(d: &mut Deployment) {
     }
 
     match args[1].as_str() {
-        "launch" => launch(d),
-        "destroy" => destroy(d),
-        _ => usage(&args),
+        "launch" => {
+            launch(d);
+            RunMode::Launch
+        }
+        "destroy" => {
+            destroy(d);
+            RunMode::Destroy
+        }
+        _ => {
+            usage(&args);
+            RunMode::Error
+        }
     }
 }
 
