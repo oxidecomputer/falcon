@@ -19,6 +19,7 @@ pub enum Error {
     Utf8(str::Utf8Error),
     Exec(String),
     QueryError(smf::QueryError),
+    PathError(String),
 }
 
 impl From<io::Error> for Error {

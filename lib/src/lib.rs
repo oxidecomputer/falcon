@@ -9,6 +9,8 @@ mod zones;
 pub mod cli;
 
 use error::Error;
+use std::fs;
+use std::path::PathBuf;
 use zfs_core::Zfs;
 
 /// A Deployment is the top level Falcon object. It contains a set of zones and
@@ -39,6 +41,17 @@ pub struct Zone {
 
     /// How many links the zone has
     pub radix: usize,
+
+    pub mounts: Vec<Mount>,
+}
+
+/// Directories mounted from host machine into a zone.
+pub struct Mount {
+    /// Directory from host to mount.
+    pub source: String,
+
+    /// Directory in zone to mount to.
+    pub destination: String,
 }
 
 /// The set of supported zone brands are captured by this enum
@@ -111,6 +124,7 @@ impl Deployment {
             name: String::from(name),
             brand: ZoneBrand::Lipkg,
             radix: 0,
+            mounts: Vec::new(),
         };
         self.zones.push(z);
         r
@@ -137,6 +151,26 @@ impl Deployment {
         self.zones[a.index].radix += 1;
         self.zones[b.index].radix += 1;
         r
+    }
+
+    pub fn mount(
+        &mut self,
+        src: impl AsRef<str>,
+        dst: impl AsRef<str>,
+        z: ZoneRef,
+    ) -> Result<(), Error> {
+        let pb = PathBuf::from(src.as_ref());
+        let cpath = fs::canonicalize(&pb)?;
+        let cpath_str = cpath
+            .to_str()
+            .ok_or(Error::PathError(format!("bad path: {}", src.as_ref())))?;
+
+        self.zones[z.index].mounts.push(Mount {
+            source: cpath_str.to_string(),
+            destination: dst.as_ref().to_string(),
+        });
+
+        Ok(())
     }
 
     /// Launch the deployment. This will first create the ZFS pool, followed
@@ -309,6 +343,7 @@ impl Zone {
                 zone_name.as_str(),
                 zone_path.as_str(),
                 &links,
+                &self.mounts,
             ),
 
             ZoneBrand::Bhyve(image) => zones::launch_bhyve_zone(
@@ -335,10 +370,8 @@ impl Zone {
             // If the zone does not exist, nothing to do
             Err(crate::Error::NotFound) => return Ok(()),
             Err(e) => return Err(e),
-            Ok(_) => {}
-        };
-
-        zones::destroy_zone(zone_name.as_str())
+            Ok(z) => zones::destroy_zone(&z),
+        }
     }
 }
 

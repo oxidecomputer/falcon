@@ -36,6 +36,7 @@ pub(crate) fn launch_lipkg_zone(
     name: &str,
     path: &str,
     links: &Vec<String>,
+    mounts: &Vec<crate::Mount>,
 ) -> Result<(), Error> {
     // configure
 
@@ -49,6 +50,15 @@ pub(crate) fn launch_lipkg_zone(
             address: None,
             allowed_address: None,
             default_router: None,
+        });
+    }
+
+    for m in mounts.iter() {
+        cfg.add_fs(&zone::Fs {
+            ty: "lofs".to_string(),
+            special: m.source.clone(),
+            dir: m.destination.clone(),
+            ..Default::default()
         });
     }
 
@@ -103,15 +113,53 @@ pub(crate) fn launch_bhyve_zone(
     Err(Error::NotImplemented)
 }
 
-pub(crate) fn destroy_zone(name: &str) -> Result<(), Error> {
-    let mut zoneadm = zone::Adm::new(name);
-    zoneadm.halt()?;
-    zoneadm.uninstall(true)?;
-
+pub(crate) fn destroy_zone(zone: &zone::Zone) -> Result<(), Error> {
+    let mut zoneadm = zone::Adm::new(zone.name());
     let mut cfg =
-        zone::Config::create(name, true, zone::CreationOptions::Default);
-    cfg.delete(true);
-    cfg.run()?;
+        zone::Config::create(zone.name(), true, zone::CreationOptions::Default);
+
+    match zone.state() {
+        zone::State::Configured => {
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::Incomplete => {
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::Installed => {
+            zoneadm.uninstall(true)?;
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::Ready => {
+            zoneadm.uninstall(true)?;
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::Mounted => {
+            zoneadm.uninstall(true)?;
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::Running => {
+            zoneadm.halt()?;
+            zoneadm.uninstall(true)?;
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::ShuttingDown => {
+            zoneadm.halt()?;
+            zoneadm.uninstall(true)?;
+            cfg.delete(true);
+            cfg.run()?;
+        }
+        zone::State::Down => {
+            zoneadm.uninstall(true)?;
+            cfg.delete(true);
+            cfg.run()?;
+        }
+    }
 
     Ok(())
 }

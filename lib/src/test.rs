@@ -41,13 +41,18 @@ mod test {
         let mut d = crate::Deployment::new("solo");
         let z = d.zone("violin");
 
+        // mount a file into the zone
+        let some_data = "some data";
+        std::fs::write("/tmp/some_data", some_data)?;
+        d.mount("/tmp/some_data", "/opt/some_data", z)?;
+
         d.launch()?;
 
         // verify zone exists
         crate::zones::get_zone("solo_violin")?;
 
         // run a command in the zone
-        let hostname = d.exec(z, "hostname")?;
+        let some_mounted_data = d.exec(z, "cat /opt/some_data")?;
 
         d.destroy()?;
 
@@ -58,8 +63,8 @@ mod test {
             Err(e) => return Err(anyhow!("{}", e)),
         }
 
-        // check the result of the hostname command
-        assert_eq!("solo_violin", hostname);
+        // check the mounted data
+        assert_eq!(some_data, some_mounted_data);
 
         Ok(())
     }
