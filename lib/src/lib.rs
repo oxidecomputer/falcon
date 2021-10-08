@@ -1,6 +1,5 @@
 // Copyright 2021 Oxide Computer Company
 
-mod dladm;
 mod error;
 mod test;
 mod util;
@@ -11,7 +10,9 @@ pub mod cli;
 use error::Error;
 use std::fs;
 use std::path::PathBuf;
-use zfs_core::Zfs;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 
 /// A Deployment is the top level Falcon object. It contains a set of zones and
 /// links that are logically namespaced under the name of the deployment. Links
@@ -179,7 +180,9 @@ impl Deployment {
         match self.do_launch() {
             Ok(()) => Ok(()),
             Err(e) => {
+                println!("launch failed: {}", e);
                 // best effort destroy
+                /*
                 match self.destroy() {
                     Ok(()) => {}
                     Err(e) => {
@@ -187,6 +190,7 @@ impl Deployment {
                         println!("manual zone/zfs/dladm cleanup may be needed");
                     }
                 }
+                */
                 // return source error
                 Err(e)
             }
@@ -195,12 +199,15 @@ impl Deployment {
 
     // TODO in parallel
     fn do_launch(&self) -> Result<(), Error> {
+        zones::ensure_base_zone()?;
         self.pool_create()?;
 
+        println!("creating links");
         for l in self.links.iter() {
             l.create(&self)?;
         }
 
+        println!("creating zones");
         for z in self.zones.iter() {
             z.launch(&self)?;
         }
@@ -250,6 +257,7 @@ impl Deployment {
 
     /// Destroy a deployments ZFS pool
     fn pool_destroy(&self) -> Result<(), Error> {
+        /*
         let zfs = Zfs::new()?;
         let poolname = self.zfs_rpool_name();
 
@@ -258,6 +266,9 @@ impl Deployment {
         }
 
         Ok(())
+        */
+        let poolname = self.zfs_rpool_name();
+        zones::destroy_zpool(&poolname)
     }
 
     /// Run a command synchronously in the zone.
@@ -266,18 +277,29 @@ impl Deployment {
     }
 
     /// Run a command asynchronously in the zone.
-    pub fn spawn(&self, _z: ZoneRef, _cmd: &str) -> Result<String, Error> {
-        Err(Error::NotImplemented)
+    pub fn spawn(&self, z: ZoneRef, cmd: &str) -> Receiver<Result<String, Error>> {
+        let (tx, rx): (
+            Sender<Result<String, Error>>,
+            Receiver<Result<String, Error>>,
+        ) = mpsc::channel();
+
+        let name = self.zones[z.index].zone_name(self);
+        let cmd = cmd.to_string();
+
+        thread::spawn(move || {
+            let res = zones::run_command(name, cmd);
+            match tx.send(res) {
+                Ok(_) => {}
+                Err(e) => println!("spawn send failed: {}", e),
+            };
+        });
+
+        rx
     }
 
     /// Copy the debug target from this crate into the referenced container at
     /// the provided location.
-    pub fn copy_debug_target(
-        &self,
-        _z: ZoneRef,
-        _src: &str,
-        _dest: &str,
-    ) -> Result<String, Error> {
+    pub fn copy_debug_target(&self, _z: ZoneRef, _src: &str, _dest: &str) -> Result<String, Error> {
         Err(Error::NotImplemented)
     }
 
@@ -316,7 +338,7 @@ impl Zone {
     }
 
     fn lipkg_preflight(&self) -> Result<(), Error> {
-        zones::ensure_base_zone()
+        Ok(())
     }
 
     fn bhyve_preflight(&self, _image: &String) -> Result<(), Error> {
@@ -346,12 +368,9 @@ impl Zone {
                 &self.mounts,
             ),
 
-            ZoneBrand::Bhyve(image) => zones::launch_bhyve_zone(
-                zone_name.as_str(),
-                zone_path.as_str(),
-                &links,
-                image,
-            ),
+            ZoneBrand::Bhyve(image) => {
+                zones::launch_bhyve_zone(zone_name.as_str(), zone_path.as_str(), &links, image)
+            }
         }
     }
 
@@ -377,38 +396,59 @@ impl Zone {
 
 impl Link {
     fn create(&self, d: &Deployment) -> Result<(), Error> {
-        let h = dladm::get_handle()?;
+        //let h = dladm::get_handle()?;
 
         // create interfaces
         for e in self.endpoints.iter() {
             let slink = d.simnet_link_name(e);
             let vlink = d.vnic_link_name(e);
 
-            // if dangling links exists, remove them
-            dladm::destroy_vnic_interface(&vlink, h)?;
-            dladm::destroy_simnet_interface(&slink, h)?;
+            let slink_h = netadm_sys::LinkHandle::Name(slink.clone());
+            let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
 
-            let link_id = dladm::create_simnet_interface(&slink, h)?;
-            dladm::create_vnic_interface(&vlink, link_id, h)?;
+            // if dangling links exists, remove them
+            //dladm::destroy_vnic_interface(&vlink, h)?;
+            //dladm::destroy_simnet_interface(&slink, h)?;
+            println!("destroying link {}", &vlink);
+            netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
+            println!("destroying link {}", &slink);
+            netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
+
+            //let link_id = dladm::create_simnet_interface(&slink, h)?;
+            //dladm::create_vnic_interface(&vlink, link_id, h)?;
+            println!("creating simnet link '{}'", &slink);
+            netadm_sys::create_simnet_link(&slink, netadm_sys::LinkFlags::Active)?;
+            println!("creating vnic link '{}'", &vlink);
+            netadm_sys::create_vnic_link(&vlink, &slink_h, netadm_sys::LinkFlags::Active)?;
+            println!("link pair created");
         }
 
         // make point to point connection beteween interfaces
         let slink0 = d.simnet_link_name(&self.endpoints[0]);
         let slink1 = d.simnet_link_name(&self.endpoints[1]);
-        dladm::connect_simnet_interfaces(&slink0, &slink1, h)?;
+        let slink0_h = netadm_sys::LinkHandle::Name(slink0);
+        let slink1_h = netadm_sys::LinkHandle::Name(slink1);
+        //dladm::connect_simnet_interfaces(&slink0, &slink1, h)?;
+        netadm_sys::connect_simnet_peers(&slink0_h, &slink1_h)?;
 
         Ok(())
     }
 
     fn destroy(&self, d: &Deployment) -> Result<(), Error> {
-        let h = dladm::get_handle()?;
+        //let h = dladm::get_handle()?;
 
         for e in self.endpoints.iter() {
             let slink = d.simnet_link_name(e);
             let vlink = d.vnic_link_name(e);
+            let slink_h = netadm_sys::LinkHandle::Name(slink.clone());
+            let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
 
-            dladm::destroy_vnic_interface(&vlink, h)?;
-            dladm::destroy_simnet_interface(&slink, h)?;
+            //dladm::destroy_vnic_interface(&vlink, h)?;
+            //dladm::destroy_simnet_interface(&slink, h)?;
+            println!("destroying link {}", &vlink);
+            netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
+            println!("destroying link {}", &slink);
+            netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
         }
 
         Ok(())

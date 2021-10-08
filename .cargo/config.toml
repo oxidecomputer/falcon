@@ -1,2 +1,5 @@
 [env]
 LIBZFS_CORE_LOOKUP_WITH = "link"
+
+[net]
+git-fetch-with-cli = true

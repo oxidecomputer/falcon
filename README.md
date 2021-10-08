@@ -6,16 +6,9 @@ Falcon is a Rust API for creating network topologies composed of zones
 interconnected by simnet links. It's designed to be used for both automated
 testing and as a development environment for networked systems.
 
-**For Falcon to work, you will need to be running a libdladm with this patch**
-- https://code.illumos.org/c/illumos-gate/+/1668
+**Falcon runs on Helios >= 1.0.20707**
 
 Currently the nightly toolchain is required.
-
-When importing on illumos the following is required in `.cargo/config.toml`
-```toml
-[env]
-LIBZFS_CORE_LOOKUP_WITH = "link"
-```
 
 ## Using from Rust tests
 
@@ -37,8 +30,8 @@ mod tests {
         d.launch()?;
 
         // set ipv6 link local addresses
-        d.exec(violin, "ipadm create-addr -T addrconf duo_violin_vnic0/v6")?;
-        d.exec(piano, "ipadm create-addr -T addrconf duo_piano_vnic0/v6")?;
+        d.exec(violin, "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
+        d.exec(piano, "ipadm create-addr -t -T addrconf duo_piano_vnic0/v6")?;
 
         // get piano addresses
         let piano_addr =
@@ -122,15 +115,20 @@ pfexec cargo run destroy
 
 ## Building
 
-Falcon depends on having the illumos source available. This is because libdladm
-is currently considered a private library and the headers are not included in a 
-normal illumos install. The `ILLUMOS_SRC` environment variable must point to a
-local [illumos-gate](https://github.com/illumos/illumos-gate) repo.
+Note that running the tests for the first time will take a while as a new lipkg
+zone needs to be installed. On my machine this is about 6-7 minutes.
 
 ```
-export ILLUMOS_SRC=<path-to-illumos-gate-source> 
 cargo build
 pfexec cargo test
 pfexec cargo test -- --ignored
+```
 
+### Package Dependencies
+
+```shell
+pkg install \
+    pkg:/system/zones/brand/ipkg \
+    pkg:/system/zones/brand/sparse \
+    pkg:/ooce/developer/clang-110
 ```

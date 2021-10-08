@@ -19,8 +19,7 @@ macro_rules! die {
 #[macro_export]
 macro_rules! namecheck {
     ($x:expr, $what:expr) => {
-        let re = regex::Regex::new(crate::util::NAME_REGEX)
-            .expect("name regex compilation failed");
+        let re = regex::Regex::new(crate::util::NAME_REGEX).expect("name regex compilation failed");
 
         if !re.is_match($x) {
             die!("{} name must match {}", $what, crate::util::NAME_REGEX);

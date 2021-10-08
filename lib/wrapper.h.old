@@ -1,5 +1,5 @@
 #include "libdladm.h"
-#include "libdladm_impl.h"
+//#include "libdladm_impl.h"
 #include "libdlaggr.h"
 #include "libdlbridge.h"
 #include "libdlether.h"
@@ -13,5 +13,4 @@
 #include "libdlvlan.h"
 #include "libdlvnic.h"
 #include "libdlwlan.h"
-#include "libdlwlan_impl.h"
-
+//#include "libdlwlan_impl.h"
