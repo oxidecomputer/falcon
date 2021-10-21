@@ -1,8 +1,8 @@
 // Copyright 2021 Oxide Computer Company
 
-use libfalcon::{cli::run, Deployment};
+use libfalcon::{cli::{run, RunMode}, error::Error, Deployment};
 
-fn main() {
+fn main() -> Result<(), Error> {
     let mut d = Deployment::new("duo");
 
     // nodes
@@ -17,5 +17,11 @@ fn main() {
     // links
     d.link(violin, piano);
 
-    run(&mut d);
+    match run(&mut d) {
+        Ok(mode) => match mode {
+            RunMode::Launch => { Ok(()) }
+            RunMode::Destroy => { Ok(()) }
+        },
+        Err(e) => Err(e),
+    }
 }

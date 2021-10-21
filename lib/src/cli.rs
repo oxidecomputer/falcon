@@ -1,12 +1,11 @@
 // Copyright 2021 Oxide Computer Company
 
-use crate::Deployment;
-use std::{env, process};
+use crate::{error::Error, Deployment};
+use std::env;
 
 pub enum RunMode {
     Launch,
     Destroy,
-    Error,
 }
 
 /// Entry point for a command line application. Will parse command line
@@ -28,27 +27,26 @@ pub enum RunMode {
 ///     run(&mut d);
 /// }
 /// ```
-pub fn run(d: &mut Deployment) -> RunMode {
+pub fn run(d: &mut Deployment) -> Result<RunMode, Error> {
     d.persistent = true;
 
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
-        usage(&args);
+        return Err(Error::Cli(usage(&args)));
     }
 
     match args[1].as_str() {
         "launch" => {
             launch(d);
-            RunMode::Launch
+            Ok(RunMode::Launch)
         }
         "destroy" => {
             destroy(d);
-            RunMode::Destroy
+            Ok(RunMode::Destroy)
         }
         _ => {
-            usage(&args);
-            RunMode::Error
+            Err(Error::Cli(usage(&args)))
         }
     }
 }
@@ -67,7 +65,6 @@ fn destroy(d: &Deployment) {
     }
 }
 
-fn usage(args: &Vec<String>) {
-    println!("usage: {} (launch | destroy)", args[0]);
-    process::exit(1);
+fn usage(args: &Vec<String>) -> String {
+    format!("usage: {} (launch | destroy)", args[0])
 }

@@ -23,4 +23,5 @@ pub enum Error {
     Zfs(String),
     Wrap(String),
     Netadm(#[from] netadm_sys::Error),
+    Cli(String),
 }

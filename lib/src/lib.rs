@@ -1,11 +1,11 @@
 // Copyright 2021 Oxide Computer Company
 
-mod error;
 mod test;
 mod util;
 mod zones;
 
 pub mod cli;
+pub mod error;
 
 use error::Error;
 use std::fs;
