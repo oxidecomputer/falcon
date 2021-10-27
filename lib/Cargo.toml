@@ -13,4 +13,17 @@ regex = "1.5"
 smf = "0.2"
 netadm-sys = { git = "ssh://git@github.com/oxidecomputer/netadm-sys" }
 fs2 = { git = "https://github.com/pfmooney/fs2-rs", branch = "illumos-target" }
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "0.8", features = ["serde", "v4"] }
+serde = "1.0"
+ron = "0.7"
+slog = "2.7"
+slog-term = "2.7"
+slog-async = "2.7"
+slog-envlogger = "2.2"
+home = "0.5"
+#propolis-server = { git = "ssh://git@github.com/oxidecomputer/propolis" }
+propolis-server = { path = "/home/ry/propolis/server" }
+propolis-client = { path = "/home/ry/propolis/client" }
+toml = "0.5"
+libc = "0.2"
+tokio = { version = "1", features = ["full"] }

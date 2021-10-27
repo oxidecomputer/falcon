@@ -1,27 +1,23 @@
 // Copyright 2021 Oxide Computer Company
 
-use libfalcon::{cli::{run, RunMode}, error::Error, Deployment};
+use libfalcon::{cli::{run, RunMode}, error::Error, Runner};
 
-fn main() -> Result<(), Error> {
-    let mut d = Deployment::new("duo");
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let mut d = Runner::new("duo");
 
     // nodes
     let violin = d.node("violin", "helios");
     let piano = d.node("piano", "helios");
 
-    d.mount("/home/ry", "/opt/stuff", violin)
-        .expect("violin mount");
-    d.mount("/home/ry", "/opt/stuff", piano)
-        .expect("piano mount");
+    d.mount("/home/ry", "/opt/stuff", violin)?;
+    d.mount("/home/ry", "/opt/stuff", piano)?;
 
     // links
     d.link(violin, piano);
 
-    match run(&mut d) {
-        Ok(mode) => match mode {
-            RunMode::Launch => { Ok(()) }
-            RunMode::Destroy => { Ok(()) }
-        },
-        Err(e) => Err(e),
+    match run(&mut d).await? {
+        RunMode::Launch => { Ok(()) }
+        RunMode::Destroy => { Ok(()) }
     }
 }

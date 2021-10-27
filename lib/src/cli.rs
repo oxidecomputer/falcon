@@ -1,6 +1,6 @@
 // Copyright 2021 Oxide Computer Company
 
-use crate::{error::Error, Deployment};
+use crate::{error::Error, Runner};
 use std::env;
 
 pub enum RunMode {
@@ -13,22 +13,22 @@ pub enum RunMode {
 ///
 /// # Examples
 /// ```no_run
-/// use libfalcon::{cli::run, Deployment};
+/// use libfalcon::{cli::run, Runner};
 /// fn main() {
-///     let mut d = Deployment::new("duo");
+///     let mut r = Runner::new("duo");
 ///
 ///     // nodes
-///     let violin = d.zone("violin");
-///     let piano = d.zone("piano");
+///     let violin = r.zone("violin");
+///     let piano = r.zone("piano");
 ///
 ///     // links
-///     d.link(violin, piano);
+///     r.link(violin, piano);
 ///
-///     run(&mut d);
+///     run(&mut r);
 /// }
 /// ```
-pub fn run(d: &mut Deployment) -> Result<RunMode, Error> {
-    d.persistent = true;
+pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
+    r.persistent = true;
 
     let args: Vec<String> = env::args().collect();
 
@@ -38,11 +38,11 @@ pub fn run(d: &mut Deployment) -> Result<RunMode, Error> {
 
     match args[1].as_str() {
         "launch" => {
-            launch(d);
+            launch(r).await;
             Ok(RunMode::Launch)
         }
         "destroy" => {
-            destroy(d);
+            destroy(r);
             Ok(RunMode::Destroy)
         }
         _ => {
@@ -51,15 +51,15 @@ pub fn run(d: &mut Deployment) -> Result<RunMode, Error> {
     }
 }
 
-fn launch(d: &Deployment) {
-    match d.launch() {
+async fn launch(r: &Runner) {
+    match r.launch().await {
         Err(e) => println!("{}", e),
         Ok(()) => {}
     }
 }
 
-fn destroy(d: &Deployment) {
-    match d.destroy() {
+fn destroy(r: &Runner) {
+    match r.destroy() {
         Err(e) => println!("{}", e),
         Ok(()) => {}
     }
