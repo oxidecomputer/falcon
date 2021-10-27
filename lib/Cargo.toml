@@ -13,3 +13,4 @@ regex = "1.5"
 smf = "0.2"
 netadm-sys = { git = "ssh://git@github.com/oxidecomputer/netadm-sys" }
 fs2 = { git = "https://github.com/pfmooney/fs2-rs", branch = "illumos-target" }
+uuid = { version = "0.8", features = ["v4"] }

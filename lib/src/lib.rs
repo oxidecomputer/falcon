@@ -2,7 +2,6 @@
 
 mod test;
 mod util;
-mod zones;
 
 pub mod cli;
 pub mod error;
@@ -14,17 +13,17 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-/// A Deployment is the top level Falcon object. It contains a set of zones and
+/// A Deployment is the top level Falcon object. It contains a set of nodes and
 /// links that are logically namespaced under the name of the deployment. Links
-/// interconnect zones forming a network.
+/// interconnect nodes forming a network.
 pub struct Deployment {
     /// The name of this deployment
     pub name: String,
 
-    /// The nodes of this deployment implemented as zones
-    pub zones: Vec<Zone>,
+    /// The nodes of this deployment
+    pub nodes: Vec<Node>,
 
-    /// The point to point links of this deployment interconnectiong zones
+    /// The point to point links of this deployment interconnectiong nodes
     pub links: Vec<Link>,
 
     /// If persistent is set to true, this deployment will not autodestruct when
@@ -32,48 +31,39 @@ pub struct Deployment {
     pub persistent: bool,
 }
 
-/// Zones make up the nodes of a Falcon network.
-pub struct Zone {
-    /// The name of the zone
+/// A node in a falcon network.
+pub struct Node {
+    /// Name of the node
     pub name: String,
-
-    /// The zone brand
-    pub brand: ZoneBrand,
-
-    /// How many links the zone has
+    /// Image node uses
+    pub image: String,
+    /// How many links the node has
     pub radix: usize,
-
+    /// Mounted file systems
     pub mounts: Vec<Mount>,
+    /// uuid of the node
+    pub id: uuid::Uuid,
 }
 
-/// Directories mounted from host machine into a zone.
+/// Directories mounted from host machine into a node.
 pub struct Mount {
     /// Directory from host to mount.
     pub source: String,
 
-    /// Directory in zone to mount to.
+    /// Directory in node to mount to.
     pub destination: String,
 }
 
-/// The set of supported zone brands are captured by this enum
-pub enum ZoneBrand {
-    /// A copy of the host OS where software is linked to the global zone
-    Lipkg,
-
-    /// A zone type for runing Bhyve virtual machines
-    Bhyve(String),
-}
-
-/// Zone references are passed back to clients when zones are created. These are
+/// Node references are passed back to clients when nodes are created. These are
 /// an opaque handle that can be used in conjunction with various methods
 /// provided by the Deployment implementation.
 #[derive(Copy, Clone)]
-pub struct ZoneRef {
-    /// The index of the referenced zone in `Deployment::zones`
+pub struct NodeRef {
+    /// The index of the referenced node in `Deployment::nodes`
     index: usize,
 }
 
-/// Links connect zones through a pair of Endpoints. Links are strictly point to
+/// Links connect nodes through a pair of Endpoints. Links are strictly point to
 /// point. They are meant to represent a single cable between machines. The only
 /// future exception to this may be for breakout cables that have a 1 to N
 /// fanout.
@@ -81,13 +71,13 @@ pub struct Link {
     pub endpoints: [Endpoint; 2],
 }
 
-/// Endpoints are owned by a Link and reference zones through a references.
+/// Endpoints are owned by a Link and reference nodes through a references.
 pub struct Endpoint {
-    /// The zone this endpiont is attached to
-    zone: ZoneRef,
+    /// The node this endpiont is attached to
+    node: NodeRef,
 
-    /// The link index within the referenced zone e.g., if this is the 3rd link
-    /// in the referenzed zone index=2.
+    /// The link index within the referenced node e.g., if this is the 3rd link
+    /// in the referenzed node index=2.
     index: usize,
 }
 
@@ -107,50 +97,53 @@ impl Deployment {
 
         Deployment {
             name: String::from(name),
-            zones: Vec::new(),
+            nodes: Vec::new(),
             links: Vec::new(),
             persistent: false,
         }
     }
 
-    /// Create a new zone within this deployment with the given name. Names must
+    /// Create a new node within this deployment with the given name. Names must
     /// conform to [A-Za-z]?[A-Za-z0-9_]*
-    pub fn zone(&mut self, name: &str) -> ZoneRef {
-        namecheck!(name, "zone");
+    pub fn node(&mut self, name: &str, image: &str) -> NodeRef {
+        namecheck!(name, "node");
 
-        let r = ZoneRef {
-            index: self.zones.len(),
+        let id = uuid::Uuid::new_v4();
+
+        let r = NodeRef {
+            index: self.nodes.len(),
         };
-        let z = Zone {
+        let n = Node {
             name: String::from(name),
-            brand: ZoneBrand::Lipkg,
+            image: String::from(image),
             radix: 0,
             mounts: Vec::new(),
+            id,
         };
-        self.zones.push(z);
+        self.nodes.push(n);
         r
     }
 
-    /// Create a new link within this deployment between the referenced zones.
-    pub fn link(&mut self, a: ZoneRef, b: ZoneRef) -> LinkRef {
+    /// Create a new link within this deployment between the referenced nodes.
+    pub fn link(&mut self, a: NodeRef, b: NodeRef) -> LinkRef {
         let r = LinkRef {
             _index: self.links.len(),
         };
         let l = Link {
             endpoints: [
                 Endpoint {
-                    zone: a,
-                    index: self.zones[a.index].radix,
+                    node: a,
+                    index: self.nodes[a.index].radix,
                 },
                 Endpoint {
-                    zone: b,
-                    index: self.zones[b.index].radix,
+                    node: b,
+                    index: self.nodes[b.index].radix,
                 },
             ],
         };
         self.links.push(l);
-        self.zones[a.index].radix += 1;
-        self.zones[b.index].radix += 1;
+        self.nodes[a.index].radix += 1;
+        self.nodes[b.index].radix += 1;
         r
     }
 
@@ -158,7 +151,7 @@ impl Deployment {
         &mut self,
         src: impl AsRef<str>,
         dst: impl AsRef<str>,
-        z: ZoneRef,
+        n: NodeRef,
     ) -> Result<(), Error> {
         let pb = PathBuf::from(src.as_ref());
         let cpath = fs::canonicalize(&pb)?;
@@ -166,7 +159,7 @@ impl Deployment {
             .to_str()
             .ok_or(Error::PathError(format!("bad path: {}", src.as_ref())))?;
 
-        self.zones[z.index].mounts.push(Mount {
+        self.nodes[n.index].mounts.push(Mount {
             source: cpath_str.to_string(),
             destination: dst.as_ref().to_string(),
         });
@@ -175,145 +168,92 @@ impl Deployment {
     }
 
     /// Launch the deployment. This will first create the ZFS pool, followed
-    /// by all of the links, then the zones with endpoints on the specificed links.
+    /// by all of the links, then the nodes with endpoints on the specificed 
+    /// links.
     pub fn launch(&self) -> Result<(), Error> {
+        self.preflight()?;
         match self.do_launch() {
             Ok(()) => Ok(()),
             Err(e) => {
                 println!("launch failed: {}", e);
-                // best effort destroy
-                /*
-                match self.destroy() {
-                    Ok(()) => {}
-                    Err(e) => {
-                        println!("cleanup failed: {}", e);
-                        println!("manual zone/zfs/dladm cleanup may be needed");
-                    }
-                }
-                */
-                // return source error
                 Err(e)
             }
         }
     }
 
+    pub fn preflight(&self) -> Result<(), Error> {
+        Ok(fs::create_dir_all(".falcon")?)
+    }
+
     // TODO in parallel
     fn do_launch(&self) -> Result<(), Error> {
-        zones::ensure_base_zone()?;
-        self.pool_create()?;
 
         println!("creating links");
         for l in self.links.iter() {
             l.create(&self)?;
         }
 
-        println!("creating zones");
-        for z in self.zones.iter() {
-            z.launch(&self)?;
+        println!("creating nodes");
+        for n in self.nodes.iter() {
+            n.launch(&self)?;
         }
 
         Ok(())
     }
 
-    /// Tear down all the zones, followed by the links and the ZFS pool
+    /// Tear down all the nodes, followed by the links and the ZFS pool
     // TODO in parallel
     pub fn destroy(&self) -> Result<(), Error> {
-        for z in self.zones.iter() {
-            z.destroy(&self)?;
+
+        for n in self.nodes.iter() {
+            n.destroy(&self)?;
         }
 
         for l in self.links.iter() {
             l.destroy(&self)?;
         }
 
-        self.pool_destroy()?;
-
         Ok(())
     }
 
-    /// Qualified name of the deployment. The falcon- prefix indicates in various
-    /// other systems contexts such as zfs and zones that whatever the user is
-    /// looking at originated from Falcon.
-    fn qname(&self) -> String {
-        format!("falcon-{}", self.name)
+    /// Run a command synchronously in the vm.
+    pub fn exec(&self, _n: NodeRef, _cmd: &str) -> Result<String, Error> {
+        //TODO
+        Err(Error::NotImplemented)
     }
 
-    /// Each Deployment gets a zfs pool with the name `rpool/<qualified-name>`
-    fn zfs_rpool_name(&self) -> String {
-        format!("rpool/{}", self.qname())
-    }
-
-    /// Deployment pools are mounted at the root directory under the qualified
-    /// name.
-    fn path(&self) -> String {
-        format!("/{}", self.qname())
-    }
-
-    /// Create a ZFS pool for the deployment
-    fn pool_create(&self) -> Result<(), Error> {
-        zones::create_zpool(self.zfs_rpool_name(), self.path())?;
-        Ok(())
-    }
-
-    /// Destroy a deployments ZFS pool
-    fn pool_destroy(&self) -> Result<(), Error> {
-        /*
-        let zfs = Zfs::new()?;
-        let poolname = self.zfs_rpool_name();
-
-        if zfs.exists(&poolname) {
-            zfs.destroy(&poolname)?;
-        }
-
-        Ok(())
-        */
-        let poolname = self.zfs_rpool_name();
-        zones::destroy_zpool(&poolname)
-    }
-
-    /// Run a command synchronously in the zone.
-    pub fn exec(&self, z: ZoneRef, cmd: &str) -> Result<String, Error> {
-        zones::run_command(&self.zones[z.index].zone_name(self), cmd)
-    }
-
-    /// Run a command asynchronously in the zone.
-    pub fn spawn(&self, z: ZoneRef, cmd: &str) -> Receiver<Result<String, Error>> {
-        let (tx, rx): (
+    /// Run a command asynchronously in the node.
+    pub fn spawn(
+        &self,
+        n: NodeRef,
+        cmd: &str,
+    ) -> Receiver<Result<String, Error>> {
+        let (_tx, rx): (
             Sender<Result<String, Error>>,
             Receiver<Result<String, Error>>,
         ) = mpsc::channel();
 
-        let name = self.zones[z.index].zone_name(self);
-        let cmd = cmd.to_string();
+        let _name = self.nodes[n.index].node_name(self);
+        let _cmd = cmd.to_string();
 
         thread::spawn(move || {
-            let res = zones::run_command(name, cmd);
-            match tx.send(res) {
-                Ok(_) => {}
-                Err(e) => println!("spawn send failed: {}", e),
-            };
+            //TODO
         });
 
         rx
     }
 
-    /// Copy the debug target from this crate into the referenced container at
-    /// the provided location.
-    pub fn copy_debug_target(&self, _z: ZoneRef, _src: &str, _dest: &str) -> Result<String, Error> {
-        Err(Error::NotImplemented)
-    }
-
     fn simnet_link_name(&self, e: &Endpoint) -> String {
         format!(
             "{}_{}_sim{}",
-            self.name, self.zones[e.zone.index].name, e.index,
+            self.name, self.nodes[e.node.index].name, e.index,
         )
     }
 
     fn vnic_link_name(&self, e: &Endpoint) -> String {
         format!(
             "{}_{}_vnic{}",
-            self.name, self.zones[e.zone.index].name, e.index,
+            self.name, self.nodes[e.node.index].name, e.index,
         )
     }
 }
@@ -329,74 +269,44 @@ impl Drop for Deployment {
     }
 }
 
-impl Zone {
+impl Node {
     fn preflight(&self) -> Result<(), Error> {
-        match &self.brand {
-            ZoneBrand::Lipkg => self.lipkg_preflight(),
-            ZoneBrand::Bhyve(image) => self.bhyve_preflight(image),
-        }
-    }
-
-    fn lipkg_preflight(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn bhyve_preflight(&self, _image: &String) -> Result<(), Error> {
+        //TODO
         Err(Error::NotImplemented)
     }
 
     fn launch(&self, d: &Deployment) -> Result<(), Error> {
         self.preflight()?;
 
-        let zone_name = self.zone_name(d);
-        let zone_path = self.path(d);
+        let _node_name = self.node_name(d);
 
         let mut links: Vec<String> = Vec::new();
         for l in d.links.iter() {
             for e in l.endpoints.iter() {
-                if d.zones[e.zone.index].name == self.name {
+                if d.nodes[e.node.index].name == self.name {
                     links.push(d.vnic_link_name(e));
                 }
             }
         }
 
-        match &self.brand {
-            ZoneBrand::Lipkg => zones::launch_lipkg_zone(
-                zone_name.as_str(),
-                zone_path.as_str(),
-                &links,
-                &self.mounts,
-            ),
-
-            ZoneBrand::Bhyve(image) => {
-                zones::launch_bhyve_zone(zone_name.as_str(), zone_path.as_str(), &links, image)
-            }
-        }
+        // TODO launch propolis instance
+        Err(Error::NotImplemented)
     }
 
-    fn zone_name(&self, d: &Deployment) -> String {
+    fn node_name(&self, d: &Deployment) -> String {
         format!("{}_{}", d.name, self.name)
     }
 
-    fn path(&self, d: &Deployment) -> String {
-        format!("{}/{}", d.path(), self.name)
-    }
-
     fn destroy(&self, d: &Deployment) -> Result<(), Error> {
-        let zone_name = self.zone_name(d);
+        let _node_name = self.node_name(d);
 
-        match zones::get_zone(zone_name.as_str()) {
-            // If the zone does not exist, nothing to do
-            Err(crate::Error::NotFound) => return Ok(()),
-            Err(e) => return Err(e),
-            Ok(z) => zones::destroy_zone(&z),
-        }
+        // TODO destroy propolis node
+        Err(Error::NotImplemented)
     }
 }
 
 impl Link {
     fn create(&self, d: &Deployment) -> Result<(), Error> {
-        //let h = dladm::get_handle()?;
 
         // create interfaces
         for e in self.endpoints.iter() {
@@ -407,19 +317,19 @@ impl Link {
             let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
 
             // if dangling links exists, remove them
-            //dladm::destroy_vnic_interface(&vlink, h)?;
-            //dladm::destroy_simnet_interface(&slink, h)?;
             println!("destroying link {}", &vlink);
             netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
             println!("destroying link {}", &slink);
             netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
 
-            //let link_id = dladm::create_simnet_interface(&slink, h)?;
-            //dladm::create_vnic_interface(&vlink, link_id, h)?;
             println!("creating simnet link '{}'", &slink);
-            netadm_sys::create_simnet_link(&slink, netadm_sys::LinkFlags::Active)?;
+            netadm_sys::create_simnet_link(
+                &slink, netadm_sys::LinkFlags::Active)?;
+
             println!("creating vnic link '{}'", &vlink);
-            netadm_sys::create_vnic_link(&vlink, &slink_h, netadm_sys::LinkFlags::Active)?;
+            netadm_sys::create_vnic_link(
+                &vlink, &slink_h, netadm_sys::LinkFlags::Active)?;
+
             println!("link pair created");
         }
 
@@ -428,14 +338,12 @@ impl Link {
         let slink1 = d.simnet_link_name(&self.endpoints[1]);
         let slink0_h = netadm_sys::LinkHandle::Name(slink0);
         let slink1_h = netadm_sys::LinkHandle::Name(slink1);
-        //dladm::connect_simnet_interfaces(&slink0, &slink1, h)?;
         netadm_sys::connect_simnet_peers(&slink0_h, &slink1_h)?;
 
         Ok(())
     }
 
     fn destroy(&self, d: &Deployment) -> Result<(), Error> {
-        //let h = dladm::get_handle()?;
 
         for e in self.endpoints.iter() {
             let slink = d.simnet_link_name(e);
@@ -443,8 +351,6 @@ impl Link {
             let slink_h = netadm_sys::LinkHandle::Name(slink.clone());
             let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
 
-            //dladm::destroy_vnic_interface(&vlink, h)?;
-            //dladm::destroy_simnet_interface(&slink, h)?;
             println!("destroying link {}", &vlink);
             netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
             println!("destroying link {}", &slink);

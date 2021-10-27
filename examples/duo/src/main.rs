@@ -6,8 +6,8 @@ fn main() -> Result<(), Error> {
     let mut d = Deployment::new("duo");
 
     // nodes
-    let violin = d.zone("violin");
-    let piano = d.zone("piano");
+    let violin = d.node("violin", "helios");
+    let piano = d.node("piano", "helios");
 
     d.mount("/home/ry", "/opt/stuff", violin)
         .expect("violin mount");

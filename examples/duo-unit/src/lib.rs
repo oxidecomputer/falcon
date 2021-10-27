@@ -8,8 +8,8 @@ mod tests {
     #[ignore]
     fn duo_ping() -> Result<()> {
         let mut d = libfalcon::Deployment::new("duo");
-        let violin = d.zone("violin");
-        let piano = d.zone("piano");
+        let violin = d.node("violin", "helios");
+        let piano = d.node("piano", "helios");
         d.link(violin, piano);
 
         d.launch()?;
