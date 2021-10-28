@@ -2,6 +2,7 @@
 
 mod test;
 mod util;
+mod serial;
 
 pub mod cli;
 pub mod error;
@@ -46,19 +47,15 @@ pub struct Deployment {
 
     /// The point to point links of this deployment interconnectiong nodes
     pub links: Vec<Link>,
-
 }
 
 impl Default for Deployment {
-
     fn default() -> Self {
-
         Deployment {
             name: "".to_string(),
             nodes: Vec::new(),
             links: Vec::new(),
         }
-
     }
 }
 
