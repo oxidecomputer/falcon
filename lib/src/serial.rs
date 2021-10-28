@@ -7,8 +7,11 @@ use tokio_tungstenite::{
     MaybeTlsStream, 
     tungstenite::Message,
 };
+use std::time::Duration;
+use tokio::time::timeout;
 use tokio::net::TcpStream;
 use futures::{SinkExt, StreamExt};
+use slog::{debug, Logger};
 
 pub enum State {
     Empty,
@@ -22,25 +25,43 @@ pub struct SerialCommander {
     pub addr: SocketAddr,
     pub instance: String,
     pub state: State,
+    log: Logger,
 }
 
 impl SerialCommander {
 
-    pub fn new(addr: SocketAddr, instance: String) -> SerialCommander {
+    pub fn new(
+        addr: SocketAddr,
+        instance: String,
+        log: Logger
+    ) -> SerialCommander {
+
         SerialCommander{
             addr,
             instance,
+            log,
             state: State::Empty,
         }
+
+    }
+
+    pub async fn connect(&mut self) 
+    -> Result<WebSocketStream<MaybeTlsStream<TcpStream>> , Error> {
+
+        debug!(self.log, "sc: connecting");
+
+        self.state = State::Connecting;
+        let path = format!("ws://{}/instances/{}/serial", self.addr, self.instance);
+        let (ws, _) = tokio_tungstenite::connect_async(path).await?;
+        Ok(ws)
+
     }
 
     pub async fn start(&mut self) -> Result<(), Error> {
 
-        // connect to websocket
-        self.state = State::Connecting;
-        let path = format!("ws://{}/instances/{}/serial", self.addr, self.instance);
-        let (mut ws, _) = tokio_tungstenite::connect_async(path).await?;
+        debug!(self.log, "sc: starting");
 
+        let mut ws = self.connect().await?;
         self.wait_for_prompt(&mut ws).await?;
         self.login(&mut ws).await?;
 
@@ -51,15 +72,10 @@ impl SerialCommander {
     async fn wait_for_prompt(&mut self, ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>)
     -> Result<(), Error>{
 
+        debug!(self.log, "sc: waiting for prompt");
+
         // TODO hardcode
-        let prompt = [
-            'l' as u8,
-            'o' as u8,
-            'g' as u8,
-            'i' as u8,
-            'n' as u8,
-            ':' as u8,
-        ];
+        let prompt = b"login:";
         let mut i = 0;
 
         loop {
@@ -70,6 +86,7 @@ impl SerialCommander {
                         if x == prompt[i] {
                             i += 1;
                             if i == prompt.len() - 1 {
+                                debug!(self.log, "sc: prompt detected");
                                 return Ok(());
                             }
                         }
@@ -90,25 +107,50 @@ impl SerialCommander {
     async fn login(&mut self, ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>)
     -> Result<(), Error>{
 
-        ws.send(Message::binary(vec![
-                b'r', b'o', b'o', b't', 0x0du8, //root<enter>
-                0x0du8, //<enter>
-        ])).await?;
+        debug!(self.log, "sc: logging in");
+
+        //TODO hardcode
+        let mut v = Vec::from(b"root".as_slice());
+        v.push(0x0du8); //<enter>
+        v.push(0x0du8); //<enter>
+        ws.send(Message::binary(v)).await?;
+
+        //TODO check login
 
         Ok(())
 
     }
 
-    async fn exec(
+    pub async fn exec(
         &mut self, 
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         command: String,
     ) -> Result<(), Error>{
 
-        let mut v = Vec::new();
-        v.copy_from_slice(command.as_bytes());
+        debug!(self.log, "sc: executing command `{}`", command);
+
+        let mut v = Vec::from(command.as_bytes());
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
+
+        Ok(())
+
+    }
+
+    pub async fn drain(
+        &mut self, 
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        command: String,
+    ) -> Result<(), Error>{
+
+        debug!(self.log, "sc: draining stream `{}`", command);
+
+        loop {
+            match timeout(Duration::from_millis(100), ws.next()).await {
+                Ok(_) => { /* do something with data? */ }
+                Err(_) => { break; }
+            }
+        }
 
         Ok(())
 

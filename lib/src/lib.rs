@@ -2,10 +2,10 @@
 
 mod test;
 mod util;
-mod serial;
 
 pub mod cli;
 pub mod error;
+pub mod serial;
 
 use tokio::time::{sleep, Duration};
 use std::net::SocketAddr;
@@ -486,9 +486,11 @@ impl Node {
             port,
         );
 
+        let addr = SocketAddr::from_str(sockaddr.as_ref())?;
+
         // create vm instance
         let client = propolis_client::Client::new(
-            SocketAddr::from_str(sockaddr.as_ref())?,
+            addr,
             r.log.clone(),
         );
 
@@ -533,6 +535,15 @@ impl Node {
             id,
             propolis_client::api::InstanceStateRequested::Run,
         ).await?;
+
+        // login to serial console
+        let mut sc = serial::SerialCommander::new(
+            addr,
+            self.name.clone(),
+            r.log.clone(),
+        );
+        sc.start().await?;
+
 
         Ok(())
     }
