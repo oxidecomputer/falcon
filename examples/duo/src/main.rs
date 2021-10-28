@@ -19,8 +19,8 @@ async fn main() -> Result<(), Error> {
 
     match run(&mut d).await? {
         RunMode::Launch => {
-            d.exec(violin, "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
-            d.exec(piano,  "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
+            //d.exec(violin, "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
+            //d.exec(piano,  "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
             Ok(())
         }
         RunMode::Destroy => { Ok(()) }

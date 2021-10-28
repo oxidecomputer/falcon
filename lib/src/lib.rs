@@ -486,13 +486,14 @@ impl Node {
             port,
         );
 
-        let addr = SocketAddr::from_str(sockaddr.as_ref())?;
+        let sockaddr = format!("[::1]:{}", port);
 
         // create vm instance
         let client = propolis_client::Client::new(
-            addr,
+            SocketAddr::from_str(sockaddr.as_ref())?,
             r.log.clone(),
         );
+
 
         let id = uuid::Uuid::new_v4();
         fs::write(format!(
@@ -536,10 +537,12 @@ impl Node {
             propolis_client::api::InstanceStateRequested::Run,
         ).await?;
 
+        let ws_sockaddr = format!("[::1]:{}", port);
+
         // login to serial console
         let mut sc = serial::SerialCommander::new(
-            addr,
-            self.name.clone(),
+            SocketAddr::from_str(ws_sockaddr.as_ref())?,
+            id.to_string(),
             r.log.clone(),
         );
         sc.start().await?;

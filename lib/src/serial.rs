@@ -6,12 +6,13 @@ use tokio_tungstenite::{
     WebSocketStream, 
     MaybeTlsStream, 
     tungstenite::Message,
+    connect_async,
 };
-use std::time::Duration;
 use tokio::time::timeout;
 use tokio::net::TcpStream;
 use futures::{SinkExt, StreamExt};
-use slog::{debug, Logger};
+use slog::{warn, debug, Logger};
+use tokio::time::{sleep, Duration};
 
 pub enum State {
     Empty,
@@ -48,11 +49,26 @@ impl SerialCommander {
     pub async fn connect(&mut self) 
     -> Result<WebSocketStream<MaybeTlsStream<TcpStream>> , Error> {
 
-        debug!(self.log, "sc: connecting");
 
         self.state = State::Connecting;
         let path = format!("ws://{}/instances/{}/serial", self.addr, self.instance);
-        let (ws, _) = tokio_tungstenite::connect_async(path).await?;
+
+        debug!(self.log, "sc: connecting to {}", path);
+
+        for _ in 0..30 {
+            match connect_async(path.clone()).await {
+                Ok((ws, _)) => {
+                    return Ok(ws)
+                }
+                Err(e) => {
+                    warn!(self.log, "{}", e);
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            }
+        }
+        // one more shot
+        let (ws, _) = connect_async(path).await?;
         Ok(ws)
 
     }
@@ -69,8 +85,10 @@ impl SerialCommander {
 
     }
 
-    async fn wait_for_prompt(&mut self, ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>)
-    -> Result<(), Error>{
+    async fn wait_for_prompt(
+        &mut self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>
+    ) -> Result<(), Error>{
 
         debug!(self.log, "sc: waiting for prompt");
 
@@ -112,8 +130,12 @@ impl SerialCommander {
         //TODO hardcode
         let mut v = Vec::from(b"root".as_slice());
         v.push(0x0du8); //<enter>
-        v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
+        self.drain(ws).await?;
+
+        let v = vec![0x0du8];
+        ws.send(Message::binary(v)).await?;
+        self.drain(ws).await?;
 
         //TODO check login
 
@@ -140,10 +162,9 @@ impl SerialCommander {
     pub async fn drain(
         &mut self, 
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-        command: String,
     ) -> Result<(), Error>{
 
-        debug!(self.log, "sc: draining stream `{}`", command);
+        debug!(self.log, "sc: draining stream");
 
         loop {
             match timeout(Duration::from_millis(100), ws.next()).await {
