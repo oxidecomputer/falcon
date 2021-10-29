@@ -8,7 +8,11 @@ pub mod error;
 pub mod serial;
 
 use tokio::time::{sleep, Duration};
-use std::net::SocketAddr;
+use std::net::{
+    IpAddr,
+    Ipv6Addr,
+    SocketAddr,
+};
 use std::str::FromStr;
 use error::Error;
 use std::fs;
@@ -281,9 +285,41 @@ impl Runner {
     }
 
     /// Run a command synchronously in the vm.
-    pub fn exec(&self, _n: NodeRef, _cmd: &str) -> Result<String, Error> {
-        //TODO
-        Err(Error::NotImplemented("Runner::exec".to_string()))
+    pub async fn exec(&self, n: NodeRef, cmd: &str) -> Result<String, Error> {
+
+        let name = self.deployment.nodes[n.index].name.clone();
+
+        let id = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
+            Ok(u) => u,
+            Err(e) => {
+                return Err(Error::NotFound(
+                        format!("propolis uuid for {}: {}", name, e)
+                ));
+            }
+        };
+
+        let port = match fs::read_to_string(format!(".falcon/{}.port", name)) {
+            Ok(p) => {
+                u16::from_str_radix(p.as_str(), 10)?
+            },
+            Err(e) => {
+                return Err(Error::NotFound(
+                        format!("get propolis port for {}: {}", name, e)
+                ));
+            }
+        };
+
+
+        let addr = SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                port,
+        );
+
+        let mut sc = serial::SerialCommander::new(addr, id, self.log.clone());
+        let mut ws = sc.connect().await?;
+
+        // if we are here, we are already logged in on the serial port
+        Ok(sc.exec(&mut ws, cmd.to_string()).await?)
     }
 
     /// Run a command asynchronously in the node.

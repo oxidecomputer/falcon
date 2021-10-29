@@ -11,7 +11,7 @@ use tokio_tungstenite::{
 use tokio::time::timeout;
 use tokio::net::TcpStream;
 use futures::{SinkExt, StreamExt};
-use slog::{warn, debug, Logger};
+use slog::{warn, debug, trace, Logger};
 use tokio::time::{sleep, Duration};
 
 pub enum State {
@@ -147,33 +147,43 @@ impl SerialCommander {
         &mut self, 
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         command: String,
-    ) -> Result<(), Error>{
+    ) -> Result<String, Error>{
 
         debug!(self.log, "sc: executing command `{}`", command);
 
         let mut v = Vec::from(command.as_bytes());
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
-
-        Ok(())
+        Ok(self.drain(ws).await?)
 
     }
 
     pub async fn drain(
         &mut self, 
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    ) -> Result<(), Error>{
+    ) -> Result<String, Error>{
 
-        debug!(self.log, "sc: draining stream");
+        trace!(self.log, "sc: draining stream");
+
+        let mut result = "".to_string();
 
         loop {
             match timeout(Duration::from_millis(100), ws.next()).await {
-                Ok(_) => { /* do something with data? */ }
-                Err(_) => { break; }
+                Ok(msg) => {
+                    match msg {
+                        Some(Ok(Message::Binary(data))) => {
+                            let s = String::from_utf8_lossy(data.as_slice()).to_string();
+                            result += &s;
+                        },
+                        Some(Ok(Message::Close(..))) | None => break,
+                        _ => continue,
+                    }
+                }
+                Err(_) => break,
             }
         }
 
-        Ok(())
+        Ok(result)
 
     }
 }
