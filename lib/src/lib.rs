@@ -26,6 +26,7 @@ use slog::{debug, warn, info, error, Logger};
 use slog::Drain;
 use std::process::Command;
 use std::collections::BTreeMap;
+use futures::future::join_all;
 
 pub struct Runner {
     /// The deployment object that describes the Falcon topology
@@ -206,9 +207,10 @@ impl Runner {
         Ok(())
     }
 
-    /// Launch the deployment. This will first create the ZFS pool, followed
-    /// by all of the links, then the nodes with endpoints on the specificed 
-    /// links.
+    /// Launch the deployment. This will clone the necessary image zvols, create
+    /// the propolis VM instances, create the point to point network interfaces,
+    /// set up the serial console for each VM and, run any user defined exec
+    /// statements.
     pub async fn launch(&self) -> Result<(), Error> {
 
         self.preflight()?;
@@ -239,7 +241,6 @@ impl Runner {
         Ok(())
     }
 
-    // TODO in parallel
     async fn do_launch(&self) -> Result<(), Error> {
 
         info!(self.log, "creating links");
@@ -250,9 +251,14 @@ impl Runner {
         info!(self.log, "creating nodes");
         //TODO available port finder
         let mut port = 10000;
+
+        let mut fs = Vec::new();
         for n in self.deployment.nodes.iter() {
-            n.launch(&self, port).await?;
+            fs.push(n.launch(&self, port));
             port += 1;
+        }
+        for x in join_all(fs).await {
+            x?;
         }
 
         Ok(())
