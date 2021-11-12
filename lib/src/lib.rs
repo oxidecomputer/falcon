@@ -451,13 +451,31 @@ impl Node {
             },
         );
 
+        // mounts
+        for (i, m) in self.mounts.iter().enumerate() {
+
+            let mut opts = BTreeMap::new();
+            opts.insert("source".to_string(), m.source.clone().into());
+            opts.insert("target".to_string(), m.destination.clone().into());
+            opts.insert("pci-path".to_string(), "0.5.0".into());
+
+            devices.insert(
+                format!("fs{}", i),
+                propolis_server::config::Device{
+                    driver: "pci-virtio-9p".to_string(),
+                    options: opts,
+                },
+            );
+
+        }
+
 
         // network interfaces
         let d = &r.deployment;
 
         let mut links: Vec<String> = Vec::new();
         let mut i = 0;
-        let mut p = 5;
+        let mut p = 6;
         for l in d.links.iter() {
             for e in l.endpoints.iter() {
                 if d.nodes[e.node.index].name == self.name {
@@ -547,8 +565,8 @@ impl Node {
             description: "a falcon vm".to_string(),
             image_id: uuid::Uuid::default(),
             bootrom_id: uuid::Uuid::default(),
-            memory: 4096, //TODO hardcode
-            vcpus: 4, //TODO hardcode
+            memory: 1024, //TODO hardcode
+            vcpus: 1, //TODO hardcode
         };
         let req = propolis_client::api::InstanceEnsureRequest {
             properties,

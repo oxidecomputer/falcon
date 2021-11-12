@@ -11,8 +11,8 @@ async fn main() -> Result<(), Error> {
     let piano = d.node("piano", "helios");
 
 
-    d.mount("/home/ry", "/opt/stuff", violin)?;
-    d.mount("/home/ry", "/opt/stuff", piano)?;
+    d.mount("./cargo-bay", "/opt/stuff", violin)?;
+    d.mount("./cargo-bay", "/opt/stuff", piano)?;
 
     // links
     d.link(violin, piano);
