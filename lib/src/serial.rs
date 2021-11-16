@@ -133,17 +133,17 @@ impl SerialCommander {
         let mut v = Vec::from(b"root".as_slice());
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
-        self.drain(ws).await?;
+        self.drain(ws, 1000).await?;
 
         let v = vec![0x0du8];
         ws.send(Message::binary(v)).await?;
-        self.drain(ws).await?;
+        self.drain(ws, 1000).await?;
 
         let mut v = Vec::from(
             b"PROMPT_COMMAND='echo __FALCON_EXEC_FINISHED__'".as_slice());
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
-        self.drain(ws).await?;
+        self.drain(ws, 1000).await?;
 
         //TODO check login
         Ok(())
@@ -158,7 +158,7 @@ impl SerialCommander {
         let mut v = Vec::from(b"logout".as_slice());
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
-        self.drain(ws).await?;
+        self.drain(ws, 1000).await?;
 
         Ok(())
 
@@ -205,6 +205,7 @@ impl SerialCommander {
                                 result += &s;
                                 debug!(self.log, "sc: detector detected");
                                 trace!(self.log, "drained: `{}`", &result);
+                                self.drain(ws, 500).await?;
                                 return Ok(result);
                             }
                         } else {
@@ -239,6 +240,7 @@ impl SerialCommander {
     pub async fn drain(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        wait: u64,
     ) -> Result<String, Error>{
 
         trace!(self.log, "sc: draining stream");
@@ -246,16 +248,12 @@ impl SerialCommander {
         let mut result = "".to_string();
 
         loop {
-            match timeout(Duration::from_millis(1000), ws.next()).await {
+            match timeout(Duration::from_millis(wait), ws.next()).await {
                 Ok(msg) => {
                     match msg {
                         Some(Ok(Message::Binary(data))) => {
-                            for x in &data {
-                                if *x < 32 {
-                                    debug!(self.log, "detected control char {}", *x);
-                                }
-                            }
-                            let s = String::from_utf8_lossy(data.as_slice()).to_string();
+                            let s = String::from_utf8_lossy(
+                                data.as_slice()).to_string();
                             result += &s;
                         },
                         Some(Ok(Message::Close(..))) => {
