@@ -294,6 +294,10 @@ impl Runner {
     pub async fn exec(&self, n: NodeRef, cmd: &str) -> Result<String, Error> {
 
         let name = self.deployment.nodes[n.index].name.clone();
+        self.do_exec(&name, cmd).await
+    }
+
+    async fn do_exec(&self, name: &str, cmd: &str) -> Result<String, Error> {
 
         let id = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
             Ok(u) => u,
@@ -606,6 +610,17 @@ impl Node {
             r.log.clone(),
         );
         sc.start().await?;
+
+        // setup mounts
+        // TODO this will only work as expected for one mount.
+        for mount in &self.mounts {
+            debug!(r.log, "mouting {}", mount.destination);
+            r.do_exec(&self.name, "p9kp load-driver").await?;
+            let cmd = format!(
+                "mkdir -p {dst}; cd {dst}; p9kp pull", dst=mount.destination);
+            r.do_exec(&self.name, &cmd).await?;
+            r.do_exec(&self.name, "cd").await?;
+        }
 
 
         Ok(())
