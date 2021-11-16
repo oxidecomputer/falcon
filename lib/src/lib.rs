@@ -622,6 +622,24 @@ impl Node {
             r.do_exec(&self.name, "cd").await?;
         }
 
+        // set hostname
+        let cmd = format!("hostname {}", self.name);
+        r.do_exec(&self.name, &cmd).await?;
+        let cmd = format!(
+            "echo '::1 {name}.local {name}' >> /etc/hosts",
+            name=self.name,
+        );
+        r.do_exec(&self.name, &cmd).await?;
+        let cmd = format!(
+            "echo '127.0.0.1 {name}.local {name}' >> /etc/hosts",
+            name=self.name,
+        );
+        r.do_exec(&self.name, &cmd).await?;
+
+        // log out and log back in to get updated console
+        let mut ws = sc.connect().await?;
+        sc.logout(&mut ws).await?;
+        sc.login(&mut ws).await?;
 
         Ok(())
     }

@@ -3,8 +3,8 @@
 use crate::error::Error;
 use std::net::SocketAddr;
 use tokio_tungstenite::{
-    WebSocketStream, 
-    MaybeTlsStream, 
+    WebSocketStream,
+    MaybeTlsStream,
     tungstenite::Message,
     connect_async,
 };
@@ -122,7 +122,9 @@ impl SerialCommander {
 
     }
 
-    async fn login(&mut self, ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>)
+    pub(crate) async fn login(
+        &mut self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>)
     -> Result<(), Error>{
 
         debug!(self.log, "sc: logging in");
@@ -137,29 +139,105 @@ impl SerialCommander {
         ws.send(Message::binary(v)).await?;
         self.drain(ws).await?;
 
+        let mut v = Vec::from(
+            b"PROMPT_COMMAND='echo __FALCON_EXEC_FINISHED__'".as_slice());
+        v.push(0x0du8); //<enter>
+        ws.send(Message::binary(v)).await?;
+        self.drain(ws).await?;
+
         //TODO check login
+        Ok(())
+
+    }
+
+    pub(crate) async fn logout(
+        &mut self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>)
+    -> Result<(), Error>{
+
+        let mut v = Vec::from(b"logout".as_slice());
+        v.push(0x0du8); //<enter>
+        ws.send(Message::binary(v)).await?;
+        self.drain(ws).await?;
 
         Ok(())
 
     }
 
     pub async fn exec(
-        &mut self, 
+        &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         command: String,
     ) -> Result<String, Error>{
 
         debug!(self.log, "sc: executing command `{}`", command);
 
-        let mut v = Vec::from(command.as_bytes());
+        let cmd = format!("{}", command);
+
+        let mut v = Vec::from(cmd.as_bytes());
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
-        Ok(self.drain(ws).await?)
+        let s = self.drain_detector(ws).await?;
+        Ok(s)
+
+    }
+
+    pub async fn drain_detector(
+        &mut self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+    ) -> Result<String, Error>{
+
+        trace!(self.log, "sc: draining stream");
+
+        let mut result = "".to_string();
+        let detector = b"__FALCON_EXEC_FINISHED__";
+        let mut i = 0;
+
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Binary(data))) => {
+                    for x in &data {
+                        if *x == detector[i] {
+                            i += 1;
+                            if i == detector.len() - 1 {
+                                let s = String::from_utf8_lossy(
+                                    data.as_slice()).to_string();
+                                result += &s;
+                                debug!(self.log, "sc: detector detected");
+                                trace!(self.log, "drained: `{}`", &result);
+                                return Ok(result);
+                            }
+                        } else {
+                            i = 0;
+                        }
+                    }
+                    let s = String::from_utf8_lossy(data.as_slice()).to_string();
+                    result += &s;
+                    trace!(self.log, "partial result `{}`", &result);
+                },
+                Some(Ok(Message::Close(..))) => {
+                    trace!(self.log, "breaking on close");
+                    break;
+                }
+                None => {
+                    trace!(self.log, "breaking on none");
+                    break;
+                }
+                _ => {
+                    trace!(self.log, "breaking on _");
+                    break;
+                }
+            }
+        }
+
+        trace!(self.log, "drained: `{}`", &result);
+
+        Ok(result)
 
     }
 
     pub async fn drain(
-        &mut self, 
+        &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     ) -> Result<String, Error>{
 
@@ -168,20 +246,40 @@ impl SerialCommander {
         let mut result = "".to_string();
 
         loop {
-            match timeout(Duration::from_millis(100), ws.next()).await {
+            match timeout(Duration::from_millis(1000), ws.next()).await {
                 Ok(msg) => {
                     match msg {
                         Some(Ok(Message::Binary(data))) => {
+                            for x in &data {
+                                if *x < 32 {
+                                    debug!(self.log, "detected control char {}", *x);
+                                }
+                            }
                             let s = String::from_utf8_lossy(data.as_slice()).to_string();
                             result += &s;
                         },
-                        Some(Ok(Message::Close(..))) | None => break,
-                        _ => continue,
+                        Some(Ok(Message::Close(..))) => {
+                            trace!(self.log, "breaking on close");
+                            break;
+                        }
+                        None => {
+                            trace!(self.log, "breaking on none");
+                            break;
+                        }
+                        _ => {
+                            trace!(self.log, "breaking on _");
+                            break;
+                        }
                     }
                 }
-                Err(_) => break,
+                Err(_) => {
+                    trace!(self.log, "breaking on timeout");
+                    break;
+                }
             }
         }
+
+        trace!(self.log, "drained: `{}`", &result);
 
         Ok(result)
 
