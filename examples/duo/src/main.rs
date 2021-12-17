@@ -23,6 +23,6 @@ async fn main() -> Result<(), Error> {
             d.exec(piano,  "ipadm create-addr -t -T addrconf vioif0/v6").await?;
             Ok(())
         }
-        RunMode::Destroy => { Ok(()) }
+        _ => { Ok(()) }
     }
 }

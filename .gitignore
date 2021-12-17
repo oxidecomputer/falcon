@@ -2,3 +2,5 @@
 Cargo.lock
 *.sw*
 rusty-tags.vi
+*.gz
+*.raw

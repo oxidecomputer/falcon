@@ -32,4 +32,5 @@ pub enum Error {
     Propolis(#[from] propolis_client::Error),
     IntParse(#[from] std::num::ParseIntError),
     WsError(#[from] tokio_tungstenite::tungstenite::Error),
+    Anyhow(#[from] anyhow::Error),
 }
