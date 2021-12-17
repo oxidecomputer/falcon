@@ -1,17 +1,10 @@
 // Copyright 2021 Oxide Computer Company
 
-use std::env;
 use std::fs;
-
-use crate::{error::Error, Runner};
-
-
-
-
-
 use std::{
     net::{IpAddr, SocketAddr, Ipv4Addr},
     os::unix::prelude::AsRawFd,
+    io::{stdout, Write},
 };
 
 use anyhow::{anyhow, Context};
@@ -20,16 +13,63 @@ use propolis_client::Client;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message;
 use slog::{o, Drain, Level, Logger};
+use colored::*;
+use tabwriter::TabWriter;
 
+use clap::{AppSettings, Parser};
 
-
-
+use crate::{error::Error, Runner};
 
 pub enum RunMode {
+    Unspec,
     Launch,
     Destroy,
-    Console,
 }
+
+#[derive(Parser)]
+#[clap(
+    version = "0.1",
+    author = "Ryan Goodfellow <ryan.goodfellow@oxide.computer>"
+)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct Opts {
+    #[clap(short, long, parse(from_occurrences))]
+    verbose: i32,
+
+    #[clap(subcommand)]
+    subcmd: SubCommand,
+}
+
+
+#[derive(Parser)]
+enum SubCommand {
+    #[clap(about = "launch topology")]
+    Launch(CmdLaunch),
+    #[clap(about = "destroy topology")]
+    Destroy(CmdDestroy),
+    #[clap(about = "get a serial console session for the specified vm")]
+    Serial(CmdSerial),
+    #[clap(about = "display topology information")]
+    Info(CmdInfo),
+}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdLaunch {}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdDestroy {}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdSerial {
+    vm_name: String,
+}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdInfo {}
 
 /// Entry point for a command line application. Will parse command line
 /// arguments and take actions accordingly.
@@ -53,33 +93,98 @@ pub enum RunMode {
 pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
     r.persistent = true;
 
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        return Err(Error::Cli(usage(&args)));
-    }
-
-    match args[1].as_str() {
-        "launch" => {
+    let opts: Opts = Opts::parse();
+    match opts.subcmd {
+        SubCommand::Launch(_) => {
             launch(r).await;
             Ok(RunMode::Launch)
-        }
-        "destroy" => {
+        },
+        SubCommand::Destroy(_) => {
             destroy(r);
             Ok(RunMode::Destroy)
-        }
-        "console" => {
-            if args.len() < 3 {
-                return Err(Error::Cli(
-                        "must provide node name argument".into()));
-            }
-            console(args[2].as_str()).await?;
-            Ok(RunMode::Console)
-        }
-        _ => {
-            Err(Error::Cli(usage(&args)))
+        },
+        SubCommand::Serial(ref c) => {
+            console(&c.vm_name).await?;
+            Ok(RunMode::Unspec)
+        },
+        SubCommand::Info(_) => {
+            info(r)?;
+            Ok(RunMode::Unspec)
         }
     }
+
+}
+
+fn info(r: &Runner) -> anyhow::Result<()> {
+
+    let mut tw = TabWriter::new(stdout());
+
+    println!("{} {}",
+        "name:".dimmed(),
+        r.deployment.name,
+    );
+
+    println!("{}", "Nodes".bright_black());
+    write!(
+        &mut tw,
+        "{}\t{}\t{}\t{}\t{}\n",
+        "Name".dimmed(),
+        "Image".dimmed(),
+        "Radix".dimmed(),
+        "Mounts".dimmed(),
+        "UUID".dimmed(),
+    )?;
+    write!(
+        &mut tw,
+        "{}\t{}\t{}\t{}\t{}\n",
+        "----".bright_black(),
+        "-----".bright_black(),
+        "-----".bright_black(),
+        "------".bright_black(),
+        "----".bright_black(),
+    )?;
+    for x in &r.deployment.nodes {
+        let mount = {
+            if x.mounts.len() > 0 {
+                format!("{} -> {}",
+                    x.mounts[0].source,
+                    x.mounts[0].destination,
+                )
+            } else {
+                "".into()
+            }
+        };
+        write!(
+            &mut tw,
+            "{}\t{}\t{}\t{}\t{}\n",
+            x.name,
+            x.image,
+            x.radix,
+            mount,
+            x.id,
+        )?;
+        if x.mounts.len() > 1 {
+            for m in &x.mounts[1..] {
+                let mount = format!("{} -> {}",
+                    m.source,
+                    m.destination,
+                );
+                write!(
+                    &mut tw,
+                    "{}\t{}\t{}\t{}\t{}\n",
+                    "",
+                    "",
+                    "",
+                    mount,
+                    "",
+                )?;
+            }
+        }
+    }
+    tw.flush()?;
+
+    Ok(())
+
 }
 
 async fn launch(r: &Runner) {
@@ -161,10 +266,6 @@ async fn serial(
     }
 
     Ok(())
-}
-
-fn usage(args: &Vec<String>) -> String {
-    format!("usage: {} (launch | destroy | console)", args[0])
 }
 
 /// Guard object that will set the terminal to raw mode and restore it

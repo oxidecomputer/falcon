@@ -7,6 +7,8 @@ pub mod cli;
 pub mod error;
 pub mod serial;
 
+//#[macro_use] extern crate clap;
+
 use tokio::time::{sleep, Duration};
 use std::net::{
     IpAddr,
@@ -80,7 +82,7 @@ pub struct Node {
 }
 
 /// Directories mounted from host machine into a node.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Mount {
     /// Directory from host to mount.
     pub source: String,
