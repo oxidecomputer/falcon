@@ -6,6 +6,7 @@ mod util;
 pub mod cli;
 pub mod error;
 pub mod serial;
+pub mod unit;
 
 use tokio::time::{sleep, Duration};
 use std::net::{
@@ -80,6 +81,10 @@ pub struct Node {
     pub mounts: Vec<Mount>,
     /// uuid of the node
     pub id: uuid::Uuid,
+    /// how many cores to give the node
+    pub cores: u8,
+    /// how much memory to give the node in mb
+    pub memory: u64,
 }
 
 /// Directories mounted from host machine into a node.
@@ -154,7 +159,7 @@ impl Runner {
 
     /// Create a new node within this deployment with the given name. Names must
     /// conform to [A-Za-z]?[A-Za-z0-9_]*
-    pub fn node(&mut self, name: &str, image: &str) -> NodeRef {
+    pub fn node(&mut self, name: &str, image: &str, cores: u8, memory: u64) -> NodeRef {
         namecheck!(name, "node");
 
         let id = uuid::Uuid::new_v4();
@@ -168,6 +173,8 @@ impl Runner {
             radix: 0,
             mounts: Vec::new(),
             id,
+            cores,
+            memory,
         };
         self.deployment.nodes.push(n);
         r
@@ -610,8 +617,8 @@ impl Node {
             description: "a falcon vm".to_string(),
             image_id: uuid::Uuid::default(),
             bootrom_id: uuid::Uuid::default(),
-            memory: 1024, //TODO hardcode
-            vcpus: 1, //TODO hardcode
+            memory: self.memory,
+            vcpus: self.cores,
         };
         let req = propolis_client::api::InstanceEnsureRequest {
             properties,
