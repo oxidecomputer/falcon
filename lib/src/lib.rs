@@ -7,8 +7,6 @@ pub mod cli;
 pub mod error;
 pub mod serial;
 
-//#[macro_use] extern crate clap;
-
 use tokio::time::{sleep, Duration};
 use std::net::{
     IpAddr,
@@ -54,6 +52,8 @@ pub struct Deployment {
 
     /// The point to point links of this deployment interconnectiong nodes
     pub links: Vec<Link>,
+
+    pub ext_links: Vec<ExtLink>,
 }
 
 impl Default for Deployment {
@@ -62,6 +62,7 @@ impl Default for Deployment {
             name: "".to_string(),
             nodes: Vec::new(),
             links: Vec::new(),
+            ext_links: Vec::new(),
         }
     }
 }
@@ -109,8 +110,14 @@ pub struct Link {
     pub endpoints: [Endpoint; 2],
 }
 
-/// Endpoints are owned by a Link and reference nodes through a references.
 #[derive(Serialize, Deserialize)]
+pub struct ExtLink {
+    pub endpoint: Endpoint,
+    pub host_ifx: String,
+}
+
+/// Endpoints are owned by a Link and reference nodes through a references.
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Endpoint {
     /// The node this endpiont is attached to
     node: NodeRef,
@@ -189,6 +196,19 @@ impl Runner {
         r
     }
 
+    pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
+        let endpoint = Endpoint{
+            node: n,
+            index: self.deployment.nodes[n.index].radix,
+        };
+        let host_ifx = host_ifx.as_ref().into();
+        self.deployment.ext_links.push(ExtLink{
+            endpoint,
+            host_ifx,
+        });
+        self.deployment.nodes[n.index].radix += 1;
+    }
+
     pub fn mount(
         &mut self,
         src: impl AsRef<str>,
@@ -251,6 +271,11 @@ impl Runner {
             l.create(&self)?;
         }
 
+        info!(self.log, "creating external links");
+        for l in self.deployment.ext_links.iter() {
+            l.create(&self)?;
+        }
+
         info!(self.log, "creating nodes");
         //TODO available port finder
         let mut port = 10000;
@@ -278,6 +303,11 @@ impl Runner {
 
         debug!(self.log, "destroying links");
         for l in self.deployment.links.iter() {
+            l.destroy(&self)?;
+        }
+
+        debug!(self.log, "destroying external links");
+        for l in self.deployment.ext_links.iter() {
             l.destroy(&self)?;
         }
 
@@ -368,6 +398,7 @@ impl Deployment {
             name: String::from(name),
             nodes: Vec::new(),
             links: Vec::new(),
+            ext_links: Vec::new(),
         }
     }
 
@@ -483,29 +514,36 @@ impl Node {
         let mut links: Vec<String> = Vec::new();
         let mut i = 0;
         let mut p = 6;
-        for l in d.links.iter() {
-            for e in l.endpoints.iter() {
-                if d.nodes[e.node.index].name == self.name {
-                    links.push(d.vnic_link_name(e));
-                    let mut opts = BTreeMap::new();
-                    opts.insert(
-                        "vnic".to_string(),
-                        toml::Value::String(d.vnic_link_name(e)),
-                    );
-                    opts.insert(
-                        "pci-path".to_string(),
-                        toml::Value::String(format!("0.{}.0", p)),
-                    );
-                    devices.insert(
-                        format!("net{}", i),
-                        propolis_server::config::Device{
-                            driver: "pci-virtio-viona".to_string(),
-                            options: opts,
-                        },
-                    );
-                    i += 1;
-                    p += 1;
-                }
+
+        let mut endpoints = Vec::new();
+        for l in &d.links {
+            endpoints.extend_from_slice(&l.endpoints);
+        }
+        for l in &d.ext_links {
+            endpoints.push(l.endpoint.clone());
+        }
+
+        for e in &endpoints {
+            if d.nodes[e.node.index].name == self.name {
+                links.push(d.vnic_link_name(e));
+                let mut opts = BTreeMap::new();
+                opts.insert(
+                    "vnic".to_string(),
+                    toml::Value::String(d.vnic_link_name(e)),
+                );
+                opts.insert(
+                    "pci-path".to_string(),
+                    toml::Value::String(format!("0.{}.0", p)),
+                );
+                devices.insert(
+                    format!("net{}", i),
+                    propolis_server::config::Device{
+                        driver: "pci-virtio-viona".to_string(),
+                        options: opts,
+                    },
+                );
+                i += 1;
+                p += 1;
             }
         }
             
@@ -644,6 +682,7 @@ impl Node {
         sc.logout(&mut ws).await?;
         sc.login(&mut ws).await?;
 
+
         Ok(())
     }
 
@@ -754,4 +793,38 @@ impl Link {
 
         Ok(())
     }
+}
+
+impl ExtLink {
+
+    fn create(&self, r: &Runner) -> Result<(), Error> {
+
+        let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
+        let vnic = netadm_sys::LinkHandle::Name(vnic_name.clone());
+        let host_ifx = netadm_sys::LinkHandle::Name(self.host_ifx.clone());
+
+        // destroy any dangling links
+        debug!(r.log, "destroying external link {}", &vnic_name);
+        netadm_sys::delete_link(&vnic, netadm_sys::LinkFlags::Active)?;
+
+        // create vnic
+        debug!(r.log, "creating external link {}", &vnic_name);
+        netadm_sys::create_vnic_link(
+            &vnic_name, &host_ifx, netadm_sys::LinkFlags::Active)?;
+
+        debug!(r.log, "external link {}@{} created", &vnic_name, &self.host_ifx);
+
+        Ok(())
+    }
+
+    fn destroy(&self, r: &Runner) -> Result<(), Error> {
+
+        let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
+        let vnic = netadm_sys::LinkHandle::Name(vnic_name.clone());
+        debug!(r.log, "destroying external link {}", &vnic_name);
+        netadm_sys::delete_link(&vnic, netadm_sys::LinkFlags::Active)?;
+
+        Ok(())
+    }
+
 }
