@@ -9,7 +9,10 @@ use std::{
 
 use anyhow::{anyhow, Context};
 use futures::{SinkExt, StreamExt};
-use propolis_client::Client;
+use propolis_client::{
+    api::InstanceStateRequested,
+    Client,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message;
 use slog::{o, Drain, Level, Logger};
@@ -51,6 +54,8 @@ enum SubCommand {
     Serial(CmdSerial),
     #[clap(about = "display topology information")]
     Info(CmdInfo),
+    #[clap(about = "reboot a vm")]
+    Reboot(CmdReboot),
 }
 
 #[derive(Parser)]
@@ -64,6 +69,12 @@ struct CmdDestroy {}
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdSerial {
+    vm_name: String,
+}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdReboot {
     vm_name: String,
 }
 
@@ -111,6 +122,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             info(r)?;
             Ok(RunMode::Unspec)
         }
+        SubCommand::Reboot(ref c) => {
+            reboot(&c.vm_name).await?;
+            Ok(RunMode::Unspec)
+        },
     }
 
 }
@@ -314,3 +329,29 @@ fn create_logger() -> Logger {
     let logger = Logger::root(drain, o!());
     logger
 }
+
+async fn reboot(name: &str) -> Result<(), Error> {
+
+    let port: u16 =
+        fs::read_to_string(format!(".falcon/{}.port", name))?.parse()?;
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), port);
+    let log = create_logger();
+    let client = Client::new(addr.clone(), log.new(o!()));
+
+    // Grab the Instance UUID
+    let id = client
+        .instance_get_uuid(&name)
+        .await
+        .with_context(|| anyhow!("failed to get instance UUID"))?;
+
+    // reboot
+    client
+        .instance_state_put(id, InstanceStateRequested::Reboot)
+        .await
+        .with_context(|| anyhow!("failed to reboot machine"))?;
+
+    Ok(())
+
+}
+
