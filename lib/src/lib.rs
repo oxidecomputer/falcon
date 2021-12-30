@@ -271,7 +271,7 @@ impl Runner {
         Ok(())
     }
 
-    async fn do_launch(&self) -> Result<(), Error> {
+    async fn net_launch(&self) -> Result<(), Error> {
 
         info!(self.log, "creating links");
         for l in self.deployment.links.iter() {
@@ -282,6 +282,15 @@ impl Runner {
         for l in self.deployment.ext_links.iter() {
             l.create(&self)?;
         }
+
+        Ok(())
+
+    }
+
+    async fn do_launch(&self) -> Result<(), Error> {
+
+        self.net_launch().await?;
+
 
         info!(self.log, "creating nodes");
         //TODO available port finder
@@ -299,15 +308,7 @@ impl Runner {
         Ok(())
     }
 
-    /// Tear down all the nodes, followed by the links and the ZFS pool
-    // TODO in parallel
-    pub fn destroy(&self) -> Result<(), Error> {
-
-        debug!(self.log, "destroying nodes");
-        for n in self.deployment.nodes.iter() {
-            n.destroy(&self)?;
-        }
-
+    pub fn net_destroy(&self) -> Result<(), Error> {
         debug!(self.log, "destroying links");
         for l in self.deployment.links.iter() {
             l.destroy(&self)?;
@@ -317,6 +318,19 @@ impl Runner {
         for l in self.deployment.ext_links.iter() {
             l.destroy(&self)?;
         }
+        Ok(())
+    }
+
+    /// Tear down all the nodes, followed by the links and the ZFS pool
+    // TODO in parallel
+    pub fn destroy(&self) -> Result<(), Error> {
+
+        debug!(self.log, "destroying nodes");
+        for n in self.deployment.nodes.iter() {
+            n.destroy(&self)?;
+        }
+
+        self.net_destroy()?;
 
         // Destroy images
         debug!(self.log, "destroying images");
@@ -574,81 +588,13 @@ impl Node {
 
     async fn launch(&self, r: &Runner, port: u32) -> Result<(), Error> {
 
-        // launch propolis-server
-
-        fs::write(format!(".falcon/{}.port", self.name),  port.to_string())?;
-
-        let stdout  = fs::File::create(format!(".falcon/{}.out", self.name))?;
-        let stderr  = fs::File::create(format!(".falcon/{}.err", self.name))?;
-        let config = format!(".falcon/{}.toml", self.name);
-        let sockaddr = format!("[::]:{}", port);
-        let mut cmd = Command::new("propolis-server");
-        cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
-            .stdout(stdout)
-            .stderr(stderr);
-        let child = cmd.spawn()?;
-
-        fs::write(format!(
-                ".falcon/{}.pid", self.name), child.id().to_string())?;
-
-        info!(r.log,
-            "launched instance {} with pid {} on port {}",
-            self.name,
-            child.id(),
-            port,
-        );
-
-        let sockaddr = format!("[::1]:{}", port);
-
-        // create vm instance
-        let client = propolis_client::Client::new(
-            SocketAddr::from_str(sockaddr.as_ref())?,
-            r.log.clone(),
-        );
-
-
+        // launch vm
+        
         let id = uuid::Uuid::new_v4();
-        fs::write(format!(
-                ".falcon/{}.uuid", self.name), id.to_string())?;
+        launch_vm(&r.log, port, &id, &self).await?;
 
-        let properties = propolis_client::api::InstanceProperties {
-            id,
-            name: self.name.clone(),
-            description: "a falcon vm".to_string(),
-            image_id: uuid::Uuid::default(),
-            bootrom_id: uuid::Uuid::default(),
-            memory: self.memory,
-            vcpus: self.cores,
-        };
-        let req = propolis_client::api::InstanceEnsureRequest {
-            properties,
-            nics: Vec::new(),
-        };
-
-        // we just launched the instance, so wait for it to become ready
-        let mut success = false;
-        for _ in 0..30 {
-            match client.instance_ensure(&req).await {
-                Ok(_) => {
-                    success = true;
-                    break;
-                }
-                Err(_) => {
-                    sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-            }
-        }
-        if !success {
-            client.instance_ensure(&req).await?;
-        }
-
-        // run vm instance
-        client.instance_state_put(
-            id,
-            propolis_client::api::InstanceStateRequested::Run,
-        ).await?;
-
+        // initial vm configuration
+        
         let ws_sockaddr = format!("[::1]:{}", port);
 
         // login to serial console
@@ -834,4 +780,89 @@ impl ExtLink {
         Ok(())
     }
 
+}
+
+pub(crate) async fn launch_vm(
+    log: &Logger,
+    port: u32,
+    id: &uuid::Uuid,
+    node: &Node,
+) -> Result<(), Error> {
+        // launch propolis-server
+
+        fs::write(format!(".falcon/{}.port", node.name),  port.to_string())?;
+
+        let stdout  = fs::File::create(format!(".falcon/{}.out", node.name))?;
+        let stderr  = fs::File::create(format!(".falcon/{}.err", node.name))?;
+        let config = format!(".falcon/{}.toml", node.name);
+        let sockaddr = format!("[::]:{}", port);
+        let mut cmd = Command::new("propolis-server");
+        cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
+            .stdout(stdout)
+            .stderr(stderr);
+        let child = cmd.spawn()?;
+
+        fs::write(format!(
+                ".falcon/{}.pid", node.name), child.id().to_string())?;
+
+        info!(log,
+            "launched instance {} with pid {} on port {}",
+            node.name,
+            child.id(),
+            port,
+        );
+
+        let sockaddr = format!("[::1]:{}", port);
+
+        // create vm instance
+        let client = propolis_client::Client::new(
+            SocketAddr::from_str(sockaddr.as_ref())?,
+            log.clone(),
+        );
+
+
+        fs::write(format!(
+                ".falcon/{}.uuid", node.name), id.to_string())?;
+
+        let properties = propolis_client::api::InstanceProperties {
+            id: *id,
+            name: node.name.clone(),
+            description: "a falcon vm".to_string(),
+            image_id: uuid::Uuid::default(),
+            bootrom_id: uuid::Uuid::default(),
+            memory: node.memory,
+            vcpus: node.cores,
+        };
+        let req = propolis_client::api::InstanceEnsureRequest {
+            properties,
+            nics: Vec::new(),
+            disks: Vec::new(),
+            migrate: None,
+        };
+
+        // we just launched the instance, so wait for it to become ready
+        let mut success = false;
+        for _ in 0..30 {
+            match client.instance_ensure(&req).await {
+                Ok(_) => {
+                    success = true;
+                    break;
+                }
+                Err(_) => {
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            }
+        }
+        if !success {
+            client.instance_ensure(&req).await?;
+        }
+
+        // run vm instance
+        client.instance_state_put(
+            *id,
+            propolis_client::api::InstanceStateRequested::Run,
+        ).await?;
+
+        Ok(())
 }

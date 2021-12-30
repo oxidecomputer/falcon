@@ -33,4 +33,5 @@ pub enum Error {
     IntParse(#[from] std::num::ParseIntError),
     WsError(#[from] tokio_tungstenite::tungstenite::Error),
     Anyhow(#[from] anyhow::Error),
+    Uuid(#[from] uuid::Error),
 }

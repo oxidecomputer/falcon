@@ -18,10 +18,11 @@ use tokio_tungstenite::tungstenite::Message;
 use slog::{o, Drain, Level, Logger};
 use colored::*;
 use tabwriter::TabWriter;
+use ron::de::{from_str};
 
 use clap::{AppSettings, Parser};
 
-use crate::{error::Error, Runner};
+use crate::{error::Error, Runner, Deployment};
 
 pub enum RunMode {
     Unspec,
@@ -56,6 +57,14 @@ enum SubCommand {
     Info(CmdInfo),
     #[clap(about = "reboot a vm")]
     Reboot(CmdReboot),
+    #[clap(about = "stop a vm's hypervisor")]
+    Hyperstop(CmdHyperstop),
+    #[clap(about = "start a vm's hypervisor")]
+    Hyperstart(CmdHyperstart),
+    #[clap(about = "create a topology's network")]
+    Netcreate(CmdNetCreate),
+    #[clap(about = "destroy a topology's network")]
+    Netdestroy(CmdNetDestroy),
 }
 
 #[derive(Parser)]
@@ -77,6 +86,30 @@ struct CmdSerial {
 struct CmdReboot {
     vm_name: String,
 }
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdHyperstop {
+    vm_name: Option<String>,
+    #[clap(short, long)]
+    all: bool,
+}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdHyperstart {
+    vm_name: Option<String>,
+    #[clap(short, long)]
+    all: bool,
+}
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdNetCreate { }
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdNetDestroy { }
 
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
@@ -126,6 +159,42 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             reboot(&c.vm_name).await?;
             Ok(RunMode::Unspec)
         },
+        SubCommand::Hyperstop(ref c) => {
+            if c.all {
+                for x in &r.deployment.nodes {
+                    hyperstop(&x.name).await?;
+                }
+            } else {
+                match c.vm_name {
+                    None => return Err(Error::Cli(
+                            "vm name required unless --all flag is used".into())),
+                    Some(ref n) => hyperstop(n).await?,
+                }
+            }
+            Ok(RunMode::Unspec)
+        },
+        SubCommand::Hyperstart(ref c) => {
+            if c.all {
+                for x in &r.deployment.nodes {
+                    hyperstart(&x.name).await?;
+                }
+            } else {
+                match c.vm_name {
+                    None => return Err(Error::Cli(
+                            "vm name required unless --all flag is used".into())),
+                    Some(ref n) => hyperstart(n).await?,
+                }
+            }
+            Ok(RunMode::Unspec)
+        },
+        SubCommand::Netcreate(_) => {
+            netcreate(r).await;
+            Ok(RunMode::Unspec)
+        }
+        SubCommand::Netdestroy(_) => {
+            netdestroy(r);
+            Ok(RunMode::Unspec)
+        }
     }
 
 }
@@ -209,6 +278,20 @@ async fn launch(r: &Runner) {
     }
 }
 
+async fn netcreate(r: &Runner) {
+    match r.net_launch().await {
+        Err(e) => println!("{}", e),
+        Ok(()) => {}
+    }
+}
+
+fn netdestroy(r: &Runner) {
+    match r.net_destroy() {
+        Err(e) => println!("{}", e),
+        Ok(()) => {}
+    }
+}
+
 fn destroy(r: &Runner) {
     match r.destroy() {
         Err(e) => println!("{}", e),
@@ -218,8 +301,9 @@ fn destroy(r: &Runner) {
 
 async fn console(name: &str) -> Result<(), Error> {
 
-    let port: u16 =
-        fs::read_to_string(format!(".falcon/{}.port", name))?.parse()?;
+    let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
+        .trim_end()
+        .parse()?;
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), port);
     let log = create_logger();
@@ -332,8 +416,9 @@ fn create_logger() -> Logger {
 
 async fn reboot(name: &str) -> Result<(), Error> {
 
-    let port: u16 =
-        fs::read_to_string(format!(".falcon/{}.port", name))?.parse()?;
+    let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
+        .trim_end()
+        .parse()?;
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), port);
     let log = create_logger();
@@ -355,3 +440,49 @@ async fn reboot(name: &str) -> Result<(), Error> {
 
 }
 
+async fn hyperstop(name: &str) -> Result<(), Error> {
+
+    let pidfile = format!(".falcon/{}.pid", name);
+    
+    // read pid
+    let pid: i32 = fs::read_to_string(&pidfile)?.trim_end().parse()?;
+
+    unsafe { libc::kill(pid, libc::SIGKILL); }
+
+    fs::remove_file(pidfile)?;
+
+    Ok(())
+}
+
+async fn hyperstart(name: &str) -> Result<(), Error> {
+
+    // read topology
+    let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
+    let d: Deployment = from_str(&topo_ron)?; 
+
+    let mut node = None;
+    for n in &d.nodes {
+        if n.name == name {
+            node = Some(n);
+        }
+    }
+
+    let node = match node {
+        None => {
+            return Err(Error::NotFound(name.into()))
+        }
+        Some(node) => node
+    };
+
+    let port: u32 = fs::read_to_string(format!(".falcon/{}.port", name))?
+        .trim_end()
+        .parse()?;
+    let id: uuid::Uuid = fs::read_to_string(format!(".falcon/{}.uuid", name))?
+        .trim_end()
+        .parse()?;
+    let log = create_logger();
+
+    crate::launch_vm(&log, port, &id, node).await?;
+
+    Ok(())
+}
