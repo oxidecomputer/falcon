@@ -293,13 +293,14 @@ impl Runner {
 
 
         info!(self.log, "creating nodes");
-        //TODO available port finder
-        let mut port = 10000;
 
         let mut fs = Vec::new();
         for n in self.deployment.nodes.iter() {
-            fs.push(n.launch(&self, port));
-            port += 1;
+            let port = match portpicker::pick_unused_port() {
+                Some(p) => p,
+                None => return Err(Error::NoPorts),
+            };
+            fs.push(n.launch(&self, port as u32));
         }
         for x in join_all(fs).await {
             x?;

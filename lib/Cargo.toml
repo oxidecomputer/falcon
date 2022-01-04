@@ -32,3 +32,5 @@ futures = "0.3"
 clap = { version = "3.0.0-beta.5", features = ["color", "derive"] }
 tabwriter = { version = "1", features = ["ansi_formatting"] }
 colored = "2"
+rand = "0.8"
+portpicker = "0.1"

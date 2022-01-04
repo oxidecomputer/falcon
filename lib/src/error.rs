@@ -34,4 +34,6 @@ pub enum Error {
     WsError(#[from] tokio_tungstenite::tungstenite::Error),
     Anyhow(#[from] anyhow::Error),
     Uuid(#[from] uuid::Error),
+    #[error("no ports available")]
+    NoPorts
 }
