@@ -6,6 +6,7 @@ use std::{
     os::unix::prelude::AsRawFd,
     io::{stdout, Write},
 };
+use std::process::Command;
 
 use anyhow::{anyhow, Context};
 use futures::{SinkExt, StreamExt};
@@ -15,7 +16,7 @@ use propolis_client::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message;
-use slog::{o, Drain, Level, Logger};
+use slog::{warn, o, Drain, Level, Logger};
 use colored::*;
 use tabwriter::TabWriter;
 use ron::de::{from_str};
@@ -442,14 +443,45 @@ async fn reboot(name: &str) -> Result<(), Error> {
 
 async fn hyperstop(name: &str) -> Result<(), Error> {
 
+    let log = create_logger();
+
     let pidfile = format!(".falcon/{}.pid", name);
     
     // read pid
-    let pid: i32 = fs::read_to_string(&pidfile)?.trim_end().parse()?;
+    match fs::read_to_string(&pidfile) {
+        Ok(pid) => {
+            match pid.trim_end().parse() {
+                Ok(pid) => {
+                    unsafe { libc::kill(pid, libc::SIGKILL); }
+                    fs::remove_file(pidfile)?;
+                }
+                Err(e) => warn!(log, "could not parse pidfile for {}: {}", name, e),
+            }
+        }
+        Err(e) => {
+            warn!(log, "could not get pidfile for {}: {}", name, e);
+        }
+    };
 
-    unsafe { libc::kill(pid, libc::SIGKILL); }
 
-    fs::remove_file(pidfile)?;
+    // get instance uuid
+    let uuid = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
+        Ok(u) => u,
+        Err(e) => {
+            warn!(log, "get propolis uuid for {}: {}", name, e);
+            return Ok(());
+        }
+    };
+
+    // destroy bhyve vm
+    let vm_arg = format!("--vm={}", uuid);
+    match Command::new("bhyvectl").args(&["--destroy", vm_arg.as_ref()]).output() {
+        Ok(_) => {}
+        Err(e) => {
+            warn!(log, "delete bhyve vm for {}: {}", name, e);
+            return Ok(());
+        }
+    }
 
     Ok(())
 }

@@ -461,13 +461,17 @@ impl Node {
         let dest = format!(
             "rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
 
-        Command::new("zfs")
+        let out = Command::new("zfs")
             .args(&[
                 "clone",
                 "-p",
                 source.as_ref(),
                 dest.as_ref(),
             ]).output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+        }
 
         // create propolis config
 

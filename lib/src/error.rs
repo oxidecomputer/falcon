@@ -15,6 +15,7 @@ pub enum Error {
     Zone(#[from] zone::ZoneError),
     FFI(#[from] ffi::NulError),
     Utf8(#[from] str::Utf8Error),
+    FUtf8(#[from] std::string::FromUtf8Error),
     #[error("exec: {0}")]
     Exec(String),
     QueryError(#[from] smf::QueryError),
@@ -35,5 +36,6 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
     Uuid(#[from] uuid::Error),
     #[error("no ports available")]
-    NoPorts
+    NoPorts,
+    Zfs(String),
 }
