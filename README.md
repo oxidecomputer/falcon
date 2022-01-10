@@ -60,8 +60,8 @@ pfexec ./target/debug/duo destroy
 
 ### Learn More
 
-[Wiki](https://github.com/oxidecomputer/falcon/wiki)
-[Working example](examples/duo).
+- The primary reference documentation is in the [wiki](https://github.com/oxidecomputer/falcon/wiki).
+- [Working examples](examples).
 
 ## Building
 
