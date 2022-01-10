@@ -24,10 +24,6 @@ async fn main() -> Result<(), Error> {
     let violin = d.node("violin", "helios", 2, gb(2));
     let piano = d.node("piano", "debian", 2, gb(2));
 
-    // p9fs filesystem mounts
-    d.mount("./cargo-bay", "/opt/stuff", violin)?;
-    d.mount("./cargo-bay", "/opt/stuff", piano)?;
-
     // links
     d.link(violin, piano);
 
@@ -42,7 +38,6 @@ the call returns, your topology is ready to use.
 
 ```shell
 cargo build
-mkdir cargo-bay #put things here you want to access from mounts in VMs
 
 export RUST_LOG=debug #needed to see log messages
 pfexec ./target/debug/duo launch
