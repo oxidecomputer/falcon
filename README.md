@@ -18,46 +18,45 @@ This workflow is useful for automated testing.
 #[cfg(test)]
 mod tests {
     use anyhow::{anyhow, Result};
+    use libfalcon::{Runner, unit::gb};
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn duo_ping() -> Result<()> {
-        let mut d = libfalcon::Deployment::new("duo");
-        let violin = d.zone("violin");
-        let piano = d.zone("piano");
+    async fn duo_ping() -> Result<()> {
+        let mut d = Runner::new("duo");
+        let violin = d.node("violin", "helios", 2, 2048);
+        let piano = d.node("piano", "helios", 2, gb(2));
         d.link(violin, piano);
 
-        d.launch()?;
+        d.launch().await?;
 
         // set ipv6 link local addresses
-        d.exec(violin, "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
-        d.exec(piano, "ipadm create-addr -t -T addrconf duo_piano_vnic0/v6")?;
+        d.exec(
+            violin,
+            "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6",
+        ).await?;
+        d.exec(piano, "ipadm create-addr -t -T addrconf duo_piano_vnic0/v6").await?;
 
         // get piano addresses
-        let piano_addr =
-            d.exec(piano, "ipadm show-addr -p -o ADDR duo_piano_vnic0/v6")?;
+        let piano_addr = d.exec(piano, "ipadm show-addr -p -o ADDR duo_piano_vnic0/v6").await?;
 
         // wait for piano address to become ready
         let mut retries = 0;
         loop {
-            let state =
-                d.exec(piano, "ipadm show-addr -po state duo_piano_vnic0/v6")?;
+            let state = d.exec(piano, "ipadm show-addr -po state duo_piano_vnic0/v6").await?;
             if state == "ok" {
                 break;
             }
             retries += 1;
             if retries >= 10 {
-                return Err(anyhow!(
-                    "timed out waiting for duo_piano_vnic0/v6"
-                ));
+                return Err(anyhow!("timed out waiting for duo_piano_vnic0/v6"));
             }
             std::thread::sleep(std::time::Duration::from_secs(1))
         }
 
         // do a ping
-        let ping_cmd =
-            format!("ping {} 1", piano_addr.strip_suffix("/10").unwrap());
-        d.exec(violin, ping_cmd.as_str())?;
+        let ping_cmd = format!("ping {} 1", piano_addr.strip_suffix("/10").unwrap());
+        d.exec(violin, ping_cmd.as_str()).await?;
 
         Ok(())
     }
@@ -73,21 +72,31 @@ This workflow is useful for actively developing networked systems.
 ### Describe the topology
 
 ```Rust
-use libfalcon::{cli::run, Deployment};
+use libfalcon::{cli::{run, RunMode}, error::Error, Runner, unit::gb};
 
-fn main() {
-
-    let mut d = Deployment::new("duo");
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let mut d = Runner::new("duo");
 
     // nodes
-    let violin = d.zone("violin");
-    let piano = d.zone("piano");
+    let violin = d.node("violin", "helios", 2, 2048);
+    let piano = d.node("piano", "helios", 2, gb(2));
+
+
+    d.mount("./cargo-bay", "/opt/stuff", violin)?;
+    d.mount("./cargo-bay", "/opt/stuff", piano)?;
 
     // links
     d.link(violin, piano);
 
-    run(&mut d);
-
+    match run(&mut d).await? {
+        RunMode::Launch => {
+            d.exec(violin, "ipadm create-addr -t -T addrconf vioif0/v6").await?;
+            d.exec(piano,  "ipadm create-addr -t -T addrconf vioif0/v6").await?;
+            Ok(())
+        }
+        _ => { Ok(()) }
+    }
 }
 ```
 
