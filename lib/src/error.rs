@@ -7,21 +7,35 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 #[error("{0}")]
 pub enum Error {
-    #[error("not implemented")]
-    NotImplemented,
-    #[error("not found")]
-    NotFound,
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
+    #[error("not found: {0}")]
+    NotFound(String),
     IO(#[from] io::Error),
     Zone(#[from] zone::ZoneError),
-    #[error("{0} {1}")]
-    Dladm(String, u32),
     FFI(#[from] ffi::NulError),
     Utf8(#[from] str::Utf8Error),
+    FUtf8(#[from] std::string::FromUtf8Error),
+    #[error("exec: {0}")]
     Exec(String),
     QueryError(#[from] smf::QueryError),
+    #[error("path: {0}")]
     PathError(String),
-    Zfs(String),
+    #[error("wrap: {0}")]
     Wrap(String),
+    #[error("netadm: {0}")]
     Netadm(#[from] netadm_sys::Error),
+    #[error("cli: {0}")]
     Cli(String),
+    Ron(#[from] ron::Error),
+    TomL(#[from] toml::ser::Error),
+    AddrParse(#[from] std::net::AddrParseError),
+    Propolis(#[from] propolis_client::Error),
+    IntParse(#[from] std::num::ParseIntError),
+    WsError(#[from] tokio_tungstenite::tungstenite::Error),
+    Anyhow(#[from] anyhow::Error),
+    Uuid(#[from] uuid::Error),
+    #[error("no ports available")]
+    NoPorts,
+    Zfs(String),
 }

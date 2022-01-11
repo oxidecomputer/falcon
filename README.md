@@ -2,133 +2,89 @@
 
 **_Fast Assessment Laboratory for Computers On Networks_**
 
-Falcon is a Rust API for creating network topologies composed of zones
-interconnected by simnet links. It's designed to be used for both automated
-testing and as a development environment for networked systems.
+Falcon is a Rust API for creating network topologies composed of 
+[Propolis](https://github.com/oxidecomputer/propolis) VMs interconnected by
+simnet links. It's designed to be used for both automated testing and as a
+development environment for networked systems.
 
 **Falcon runs on Helios >= 1.0.20707**
 
 Currently the nightly toolchain is required.
 
-## Using from Rust tests
+## Installing
 
-This workflow is useful for automated testing.
+Install `propolis-server` from my [p9fs branch](https://github.com/rcgoodfellow/propolis/tree/p9fs) 
 
-```Rust
-#[cfg(test)]
-mod tests {
-    use anyhow::{anyhow, Result};
-
-    #[test]
-    #[ignore]
-    fn duo_ping() -> Result<()> {
-        let mut d = libfalcon::Deployment::new("duo");
-        let violin = d.zone("violin");
-        let piano = d.zone("piano");
-        d.link(violin, piano);
-
-        d.launch()?;
-
-        // set ipv6 link local addresses
-        d.exec(violin, "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6")?;
-        d.exec(piano, "ipadm create-addr -t -T addrconf duo_piano_vnic0/v6")?;
-
-        // get piano addresses
-        let piano_addr =
-            d.exec(piano, "ipadm show-addr -p -o ADDR duo_piano_vnic0/v6")?;
-
-        // wait for piano address to become ready
-        let mut retries = 0;
-        loop {
-            let state =
-                d.exec(piano, "ipadm show-addr -po state duo_piano_vnic0/v6")?;
-            if state == "ok" {
-                break;
-            }
-            retries += 1;
-            if retries >= 10 {
-                return Err(anyhow!(
-                    "timed out waiting for duo_piano_vnic0/v6"
-                ));
-            }
-            std::thread::sleep(std::time::Duration::from_secs(1))
-        }
-
-        // do a ping
-        let ping_cmd =
-            format!("ping {} 1", piano_addr.strip_suffix("/10").unwrap());
-        d.exec(violin, ping_cmd.as_str())?;
-
-        Ok(())
-    }
-}
+Set up firmware and OS base images.
+```
+./get-ovmf.sh
+./setup-base-images.sh
 ```
 
-[Working example](examples/duo-unit).
+Install package dependencies
 
-## Using from command line
+```shell
+pkg install \
+    pkg:/system/zones/brand/ipkg \
+    pkg:/system/zones/brand/sparse
+```
 
-This workflow is useful for actively developing networked systems.
-
-### Describe the topology
+## QuickStart
 
 ```Rust
-use libfalcon::{cli::run, Deployment};
+use libfalcon::{cli::{run, RunMode}, error::Error, Runner, unit::gb};
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let mut d = Runner::new("duo");
 
-    let mut d = Deployment::new("duo");
-
-    // nodes
-    let violin = d.zone("violin");
-    let piano = d.zone("piano");
+    // nodes, each with 2 cores and 2G of memory
+    let violin = d.node("violin", "helios-1.0", 2, gb(2));
+    let piano = d.node("piano", "debian-11.0", 2, gb(2));
 
     // links
     d.link(violin, piano);
 
-    run(&mut d);
-
+    match run(&mut d).await?;
 }
 ```
 
 ### Launch the topology
 
+The following will launch the VMs in your topology and do some basic setup. When
+the call returns, your topology is ready to use.
+
 ```shell
-pfexec cargo run launch
+cargo build
+pfexec ./target/debug/duo launch
 ```
 
-### Do some work
+### Get a serial connection to a node
+
+Once the topology is up, you can access the nodes via serial connection. Tap the
+enter key a few times after the serial command. To exit the console use `ctl-q`.
 
 ```shell
-pfexec zlogin duo_violin
-...
+./target/debug/duo serial violin
 ```
 
 ### Destroy the topology
 
 ```shell
-pfexec cargo run destroy
+pfexec ./target/debug/duo destroy
 ```
 
+### Learn More
 
-[Working example](examples/duo).
+- The primary reference documentation is in the [wiki](https://github.com/oxidecomputer/falcon/wiki/Reference).
+- [Working examples](examples).
 
-## Building
+## Building and testing
 
-Note that running the tests for the first time will take a while as a new lipkg
-zone needs to be installed. On my machine this is about 6-7 minutes.
+This assumes that that the instructions in the install section have been run.
 
 ```
 cargo build
 pfexec cargo test
 pfexec cargo test -- --ignored
-```
-
-### Package Dependencies
-
-```shell
-pkg install \
-    pkg:/system/zones/brand/ipkg \
-    pkg:/system/zones/brand/sparse \
-    pkg:/ooce/developer/clang-110
 ```

@@ -2,3 +2,9 @@
 Cargo.lock
 *.sw*
 rusty-tags.vi
+*.gz
+*.raw
+.img
+cargo-bay
+debug.out
+.falcon
