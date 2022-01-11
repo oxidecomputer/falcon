@@ -66,6 +66,8 @@ enum SubCommand {
     Netcreate(CmdNetCreate),
     #[clap(about = "destroy a topology's network")]
     Netdestroy(CmdNetDestroy),
+    #[clap(about = "snapshot a node")]
+    Snapshot(CmdSnapshot),
 }
 
 #[derive(Parser)]
@@ -111,6 +113,13 @@ struct CmdNetCreate { }
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdNetDestroy { }
+
+#[derive(Parser)]
+#[clap(setting = AppSettings::InferSubcommands)]
+struct CmdSnapshot { 
+    vm_name: String,
+    snapshot_name: String,
+}
 
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
@@ -194,6 +203,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
         }
         SubCommand::Netdestroy(_) => {
             netdestroy(r);
+            Ok(RunMode::Unspec)
+        }
+        SubCommand::Snapshot(s) => {
+            snapshot(s)?;
             Ok(RunMode::Unspec)
         }
     }
@@ -291,6 +304,84 @@ fn netdestroy(r: &Runner) {
         Err(e) => println!("{}", e),
         Ok(()) => {}
     }
+}
+
+fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
+
+    // read topology
+    let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
+    let d: Deployment = from_str(&topo_ron)?; 
+
+    // get node from topology
+    let mut node = None;
+    for n in &d.nodes {
+        if n.name == cmd.vm_name {
+            node = Some(n);
+        }
+    }
+
+    let node = match node {
+        None => {
+            return Err(Error::NotFound(cmd.vm_name.into()))
+        }
+        Some(node) => node
+    };
+
+    let source = format!("rpool/falcon/topo/{}/{}",
+        d.name,
+        node.name
+    );
+    let source_snapshot = format!("{}@base", source);
+
+    let dest = format!("rpool/falcon/img/{}",
+        cmd.snapshot_name,
+    );
+    let dest_snapshot = format!("{}@base", source);
+
+    // first take a snapshot of the node clone
+    let out = Command::new("zfs")
+        .args(&[
+            "snapshot",
+            source_snapshot.as_ref(),
+        ]).output()?;
+    if !out.status.success() {
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+    }
+
+    // next clone the source snapshot to a new base image
+    let out = Command::new("zfs")
+        .args(&[
+            "clone",
+            source_snapshot.as_ref(),
+            dest.as_ref(),
+        ]).output()?;
+
+    if !out.status.success() {
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+    }
+
+    // promote the base image to uncouple from source snapshot
+    let out = Command::new("zfs")
+        .args(&[
+            "promote",
+            dest.as_ref(),
+        ]).output()?;
+    if !out.status.success() {
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+    }
+
+    // finally create base snapshot for new image
+    let out = Command::new("zfs")
+        .args(&[
+            "snapshot",
+            dest_snapshot.as_ref(),
+        ]).output()?;
+    if !out.status.success() {
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+    }
+
+
+    Ok(())
 }
 
 fn destroy(r: &Runner) {
