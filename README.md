@@ -21,6 +21,14 @@ Set up firmware and OS base images.
 ./setup-base-images.sh
 ```
 
+Install package dependencies
+
+```shell
+pkg install \
+    pkg:/system/zones/brand/ipkg \
+    pkg:/system/zones/brand/sparse
+```
+
 ## QuickStart
 
 ```Rust
@@ -71,22 +79,12 @@ pfexec ./target/debug/duo destroy
 - The primary reference documentation is in the [wiki](https://github.com/oxidecomputer/falcon/wiki).
 - [Working examples](examples).
 
-## Building
+## Building and testing
 
-Note that running the tests for the first time will take a while as a new lipkg
-zone needs to be installed. On my machine this is about 6-7 minutes.
+This assumes that that the instructions in the install section have been run.
 
 ```
 cargo build
 pfexec cargo test
 pfexec cargo test -- --ignored
-```
-
-### Package Dependencies
-
-```shell
-pkg install \
-    pkg:/system/zones/brand/ipkg \
-    pkg:/system/zones/brand/sparse \
-    pkg:/ooce/developer/clang-110
 ```
