@@ -10,7 +10,8 @@ mod test {
     /// destroyed.
     #[tokio::test]
     async fn empty_launch() -> Result<()> {
-        let d = crate::Runner::new("empty-launch");
+        let mut d = crate::Runner::new("empty-launch");
+        d.persistent = true;
         d.launch().await?;
         d.destroy()?;
 
@@ -27,14 +28,16 @@ mod test {
 
         // mount a file into the node
         let some_data = "some data";
-        std::fs::write("/tmp/some_data", some_data)?;
-        d.mount("/tmp/some_data", "/opt/some_data", z)?;
+        std::fs::create_dir_all("/tmp/solo")?;
+        std::fs::write("/tmp/solo/some_data", some_data)?;
+        d.mount("/tmp/solo", "/opt/solo", z)?;
 
         d.launch().await?;
 
         // run a command on the node
-        let some_mounted_data = d.exec(z, "cat /opt/some_data").await?;
+        let some_mounted_data = d.exec(z, "cat /opt/solo/some_data").await?;
 
+        d.persistent = true;
         d.destroy()?;
 
         // check the mounted data
@@ -47,14 +50,6 @@ mod test {
     /// simnet and vnic links get created and destroyed.
     #[tokio::test]
     async fn duo_launch() -> Result<()> {
-        /*
-        let mut h: *mut crate::illumos::dladm_handle = ptr::null_mut();
-        let status = unsafe { crate::illumos::dladm_open(&mut h) };
-        if status != crate::illumos::dladm_status_t_DLADM_STATUS_OK {
-            return Err(anyhow!("test: get dladm handle"));
-        }
-        */
-
         // These are the links we'll expect to see, one simnet and one vnic for
         // each node
         let links = [
