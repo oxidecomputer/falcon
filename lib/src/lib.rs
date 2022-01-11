@@ -144,6 +144,17 @@ impl Runner {
     pub fn new(name: &str) -> Self {
         namecheck!(name, "deployment");
 
+        match std::env::var("RUST_LOG") {
+            Ok(s) => {
+                if s.is_empty() {
+                    std::env::set_var("RUST_LOG", "info");
+                }
+            }
+            _ => {
+                std::env::set_var("RUST_LOG", "info");
+            }
+        }
+
         let decorator = slog_term::TermDecorator::new().build();
         let drain = slog_term::FullFormat::new(decorator).build().fuse();
         let drain = slog_envlogger::new(drain).fuse();
@@ -310,12 +321,12 @@ impl Runner {
     }
 
     pub fn net_destroy(&self) -> Result<(), Error> {
-        debug!(self.log, "destroying links");
+        info!(self.log, "destroying links");
         for l in self.deployment.links.iter() {
             l.destroy(&self)?;
         }
 
-        debug!(self.log, "destroying external links");
+        info!(self.log, "destroying external links");
         for l in self.deployment.ext_links.iter() {
             l.destroy(&self)?;
         }
@@ -326,7 +337,7 @@ impl Runner {
     // TODO in parallel
     pub fn destroy(&self) -> Result<(), Error> {
 
-        debug!(self.log, "destroying nodes");
+        info!(self.log, "destroying nodes");
         for n in self.deployment.nodes.iter() {
             n.destroy(&self)?;
         }
@@ -334,12 +345,12 @@ impl Runner {
         self.net_destroy()?;
 
         // Destroy images
-        debug!(self.log, "destroying images");
+        info!(self.log, "destroying images");
         let img = format!("rpool/falcon/topo/{}", self.deployment.name);
         Command::new("zfs").args(&["destroy", "-r", img.as_ref()]).output()?;
 
         // Destroy workspace
-        debug!(self.log, "destroying workspace");
+        info!(self.log, "destroying workspace");
         fs::remove_dir_all(".falcon")?;
 
         Ok(())
@@ -457,7 +468,7 @@ impl Node {
         //Clone base image
 
         //TODO incorporate version into img
-        let source = format!("rpool/falcon/img/{}@1.0", self.image);
+        let source = format!("rpool/falcon/img/{}@base", self.image);
         let dest = format!(
             "rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
 
@@ -613,7 +624,7 @@ impl Node {
         // setup mounts
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
-            debug!(r.log, "mouting {}", mount.destination);
+            info!(r.log, "mouting {}", mount.destination);
             r.do_exec(&self.name, "p9kp load-driver").await?;
             let cmd = format!(
                 "mkdir -p {dst}; cd {dst}; p9kp pull", dst=mount.destination);
@@ -712,11 +723,11 @@ impl Link {
             debug!(r.log, "destroying link {}", &slink);
             netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
 
-            debug!(r.log, "creating simnet link '{}'", &slink);
+            info!(r.log, "creating simnet link '{}'", &slink);
             netadm_sys::create_simnet_link(
                 &slink, netadm_sys::LinkFlags::Active)?;
 
-            debug!(r.log, "creating vnic link '{}'", &vlink);
+            info!(r.log, "creating vnic link '{}'", &vlink);
             netadm_sys::create_vnic_link(
                 &vlink, &slink_h, netadm_sys::LinkFlags::Active)?;
 
@@ -743,9 +754,9 @@ impl Link {
             let slink_h = netadm_sys::LinkHandle::Name(slink.clone());
             let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
 
-            debug!(r.log, "destroying link {}", &vlink);
+            info!(r.log, "destroying link {}", &vlink);
             netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
-            debug!(r.log, "destroying link {}", &slink);
+            info!(r.log, "destroying link {}", &slink);
             netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
         }
 
@@ -766,7 +777,7 @@ impl ExtLink {
         netadm_sys::delete_link(&vnic, netadm_sys::LinkFlags::Active)?;
 
         // create vnic
-        debug!(r.log, "creating external link {}", &vnic_name);
+        info!(r.log, "creating external link {}", &vnic_name);
         netadm_sys::create_vnic_link(
             &vnic_name, &host_ifx, netadm_sys::LinkFlags::Active)?;
 
@@ -779,7 +790,7 @@ impl ExtLink {
 
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = netadm_sys::LinkHandle::Name(vnic_name.clone());
-        debug!(r.log, "destroying external link {}", &vnic_name);
+        info!(r.log, "destroying external link {}", &vnic_name);
         netadm_sys::delete_link(&vnic, netadm_sys::LinkFlags::Active)?;
 
         Ok(())

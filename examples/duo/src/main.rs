@@ -7,8 +7,8 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let violin = d.node("violin", "helios", 2, 2048);
-    let piano = d.node("piano", "helios", 2, gb(2));
+    let violin = d.node("violin", "helios-1.0", 2, 2048);
+    let piano = d.node("piano", "debian-11.0", 2, gb(2));
 
     // p9fs filesystem mounts
     d.mount("./cargo-bay", "/opt/stuff", violin)?;

@@ -11,6 +11,16 @@ development environment for networked systems.
 
 Currently the nightly toolchain is required.
 
+## Installing
+
+Install `propolis-server` from my [p9fs branch](https://github.com/rcgoodfellow/propolis/tree/p9fs) 
+
+Set up firmware and OS base images.
+```
+./get-ovmf.sh
+./setup-base-images.sh
+```
+
 ## QuickStart
 
 ```Rust
@@ -21,8 +31,8 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let violin = d.node("violin", "helios", 2, gb(2));
-    let piano = d.node("piano", "debian", 2, gb(2));
+    let violin = d.node("violin", "helios-1.0", 2, gb(2));
+    let piano = d.node("piano", "debian-11.0", 2, gb(2));
 
     // links
     d.link(violin, piano);
@@ -38,8 +48,6 @@ the call returns, your topology is ready to use.
 
 ```shell
 cargo build
-
-export RUST_LOG=debug #needed to see log messages
 pfexec ./target/debug/duo launch
 ```
 
