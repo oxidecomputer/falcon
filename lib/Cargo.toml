@@ -22,8 +22,10 @@ slog-async = "2.7"
 slog-envlogger = "2.2"
 home = "0.5"
 #propolis-server = { git = "ssh://git@github.com/oxidecomputer/propolis" }
-propolis-server = { path = "/home/ry/src/propolis/server" }
-propolis-client = { path = "/home/ry/src/propolis/client" }
+#propolis-server = { path = "/home/ry/src/propolis/server" }
+#propolis-client = { path = "/home/ry/src/propolis/client" }
+propolis-client = { git = "ssh://git@github.com/rcgoodfellow/propolis", branch = "p9fs" }
+propolis-server = { git = "ssh://git@github.com/rcgoodfellow/propolis", branch = "p9fs" }
 toml = "0.5"
 libc = "0.2"
 tokio = { version = "1", features = ["full"] }
