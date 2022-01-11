@@ -76,7 +76,7 @@ pfexec ./target/debug/duo destroy
 
 ### Learn More
 
-- The primary reference documentation is in the [wiki](https://github.com/oxidecomputer/falcon/wiki).
+- The primary reference documentation is in the [wiki](https://github.com/oxidecomputer/falcon/wiki/Reference).
 - [Working examples](examples).
 
 ## Building and testing
