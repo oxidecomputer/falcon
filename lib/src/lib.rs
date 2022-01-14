@@ -37,6 +37,9 @@ pub struct Runner {
     /// dropped.
     pub persistent: bool,
 
+    /// The propolis-server binary to use
+    pub propolis_binary: String,
+
     log: Logger,
 }
 
@@ -164,6 +167,7 @@ impl Runner {
             deployment: Deployment::new(name),
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
+            propolis_binary: "propolis-server".into(),
         }
 
     }
@@ -607,7 +611,7 @@ impl Node {
         // launch vm
         
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, port, &id, &self).await?;
+        launch_vm(&r.log, &r.propolis_binary, port, &id, &self).await?;
 
         // initial vm configuration
         
@@ -800,6 +804,7 @@ impl ExtLink {
 
 pub(crate) async fn launch_vm(
     log: &Logger,
+    propolis_binary: &String,
     port: u32,
     id: &uuid::Uuid,
     node: &Node,
@@ -812,7 +817,7 @@ pub(crate) async fn launch_vm(
         let stderr  = fs::File::create(format!(".falcon/{}.err", node.name))?;
         let config = format!(".falcon/{}.toml", node.name);
         let sockaddr = format!("[::]:{}", port);
-        let mut cmd = Command::new("propolis-server");
+        let mut cmd = Command::new(propolis_binary);
         cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
             .stdout(stdout)
             .stderr(stderr);
