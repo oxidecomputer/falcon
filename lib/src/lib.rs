@@ -15,6 +15,7 @@ use std::net::{
     SocketAddr,
 };
 use std::str::FromStr;
+use std::convert::TryInto;
 use error::Error;
 use std::fs;
 use std::path::PathBuf;
@@ -36,6 +37,9 @@ pub struct Runner {
     /// If persistent is set to true, this deployment will not autodestruct when
     /// dropped.
     pub persistent: bool,
+
+    /// The propolis-server binary to use
+    pub propolis_binary: String,
 
     log: Logger,
 }
@@ -121,6 +125,21 @@ pub struct ExtLink {
     pub host_ifx: String,
 }
 
+/// Endpoint kind determines what type of device will be chosen to underpin a
+/// given endpoint on a VM.
+#[derive(Serialize, Deserialize, Clone)]
+pub enum EndpointKind {
+
+    /// Use a bhyve/viona kernel device. This is the default.
+    Viona,
+
+    /// Use a Sidecar multiplexing device. If you are unsure, this is not what
+    /// you want. The usize parameter indicates radix of the connected Sidecar
+    /// device.
+    Sidemux(usize),
+
+}
+
 /// Endpoints are owned by a Link and reference nodes through a references.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Endpoint {
@@ -130,6 +149,9 @@ pub struct Endpoint {
     /// The link index within the referenced node e.g., if this is the 3rd link
     /// in the referenzed node index=2.
     index: usize,
+
+    /// What kind of virtual device this endpoint will be realized as.
+    kind: EndpointKind
 }
 
 /// Opaque handle to a link. Used by clients to perform API functions on
@@ -164,12 +186,13 @@ impl Runner {
             deployment: Deployment::new(name),
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
+            propolis_binary: "propolis-server".into(),
         }
 
     }
 
     /// Create a new node within this deployment with the given name. Names must
-    /// conform to [A-Za-z]?[A-Za-z0-9_]*
+    /// conform to `[A-Za-z]?[A-Za-z0-9_]*`
     pub fn node(&mut self, name: &str, image: &str, cores: u8, memory: u64) -> NodeRef {
         namecheck!(name, "node");
 
@@ -201,10 +224,12 @@ impl Runner {
                 Endpoint {
                     node: a,
                     index: self.deployment.nodes[a.index].radix,
+                    kind: EndpointKind::Viona,
                 },
                 Endpoint {
                     node: b,
                     index: self.deployment.nodes[b.index].radix,
+                    kind: EndpointKind::Viona,
                 },
             ],
         };
@@ -214,10 +239,47 @@ impl Runner {
         r
     }
 
+    /// Create a sidecar controller link with the provided radix.
+    ///
+    /// The sidecar node will get a regular bhyve/viona endpoint. The controller
+    /// node will get a sidemux device with the provided radix.
+    pub fn sidecar_link(
+        &mut self,
+        sidecar: NodeRef,
+        controller: NodeRef,
+        radix: usize,
+    ) -> LinkRef {
+
+        let r = LinkRef {
+            _index: self.deployment.links.len(),
+        };
+        let l = Link{
+            endpoints: [
+                Endpoint {
+                    node: sidecar,
+                    index: self.deployment.nodes[sidecar.index].radix,
+                    kind: EndpointKind::Viona,
+                },
+                Endpoint {
+                    node: controller,
+                    index: self.deployment.nodes[controller.index].radix,
+                    kind: EndpointKind::Sidemux(radix),
+                },
+            ],
+        };
+        self.deployment.links.push(l);
+        self.deployment.nodes[sidecar.index].radix += 1;
+        self.deployment.nodes[controller.index].radix += radix;
+        r
+
+    }
+
+    /// Create an external link attached to `host_ifx`.
     pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
         let endpoint = Endpoint{
             node: n,
             index: self.deployment.nodes[n.index].radix,
+            kind: EndpointKind::Viona,
         };
         let host_ifx = host_ifx.as_ref().into();
         self.deployment.ext_links.push(ExtLink{
@@ -227,6 +289,8 @@ impl Runner {
         self.deployment.nodes[n.index].radix += 1;
     }
 
+    /// Provide the host folder `src` as a p9fs mount to the guest with the tag
+    /// `dst`.
     pub fn mount(
         &mut self,
         src: impl AsRef<str>,
@@ -264,7 +328,7 @@ impl Runner {
         }
     }
 
-    pub fn preflight(&self) -> Result<(), Error> {
+    fn preflight(&self) -> Result<(), Error> {
 
         // ensure falcon working dir
         fs::create_dir_all(".falcon")?;
@@ -544,13 +608,13 @@ impl Node {
 
         }
 
-
         // network interfaces
         let d = &r.deployment;
 
-        let mut links: Vec<String> = Vec::new();
-        let mut i = 0;
-        let mut p = 6;
+        //let mut links: Vec<String> = Vec::new();
+        let mut viona_index = 0;
+        let mut sidemux_index = 0;
+        let mut pci_index = 6;
 
         let mut endpoints = Vec::new();
         for l in &d.links {
@@ -562,25 +626,53 @@ impl Node {
 
         for e in &endpoints {
             if d.nodes[e.node.index].name == self.name {
-                links.push(d.vnic_link_name(e));
-                let mut opts = BTreeMap::new();
-                opts.insert(
-                    "vnic".to_string(),
-                    toml::Value::String(d.vnic_link_name(e)),
-                );
-                opts.insert(
-                    "pci-path".to_string(),
-                    toml::Value::String(format!("0.{}.0", p)),
-                );
-                devices.insert(
-                    format!("net{}", i),
-                    propolis_server::config::Device{
-                        driver: "pci-virtio-viona".to_string(),
-                        options: opts,
-                    },
-                );
-                i += 1;
-                p += 1;
+                match e.kind {
+                    EndpointKind::Viona => {
+                        //links.push(d.vnic_link_name(e));
+                        let mut opts = BTreeMap::new();
+                        opts.insert(
+                            "vnic".to_string(),
+                            toml::Value::String(d.vnic_link_name(e)),
+                        );
+                        opts.insert(
+                            "pci-path".to_string(),
+                            toml::Value::String(format!("0.{}.0", pci_index)),
+                        );
+                        devices.insert(
+                            format!("net{}", viona_index),
+                            propolis_server::config::Device{
+                                driver: "pci-virtio-viona".to_string(),
+                                options: opts,
+                            },
+                        );
+                        viona_index += 1;
+                        pci_index += 1;
+                    }
+                    EndpointKind::Sidemux(radix) => {
+                        let mut opts = BTreeMap::new();
+                        opts.insert(
+                            "radix".to_string(),
+                            toml::Value::Integer(radix.try_into()?),
+                        );
+                        opts.insert(
+                            "link-name".to_string(),
+                            toml::Value::String(d.vnic_link_name(e)),
+                        );
+                        opts.insert(
+                            "pci-path".to_string(),
+                            toml::Value::String(format!("0.{}.0", pci_index)),
+                        );
+                        devices.insert(
+                            format!("sidemux{}", sidemux_index),
+                            propolis_server::config::Device{
+                                driver: "sidemux".into(),
+                                options: opts,
+                            },
+                        );
+                        sidemux_index += 1;
+                        pci_index += radix;
+                    }
+                }
             }
         }
             
@@ -607,7 +699,7 @@ impl Node {
         // launch vm
         
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, port, &id, &self).await?;
+        launch_vm(&r.log, &r.propolis_binary, port, &id, &self).await?;
 
         // initial vm configuration
         
@@ -800,6 +892,7 @@ impl ExtLink {
 
 pub(crate) async fn launch_vm(
     log: &Logger,
+    propolis_binary: &String,
     port: u32,
     id: &uuid::Uuid,
     node: &Node,
@@ -812,7 +905,7 @@ pub(crate) async fn launch_vm(
         let stderr  = fs::File::create(format!(".falcon/{}.err", node.name))?;
         let config = format!(".falcon/{}.toml", node.name);
         let sockaddr = format!("[::]:{}", port);
-        let mut cmd = Command::new("propolis-server");
+        let mut cmd = Command::new(propolis_binary);
         cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
             .stdout(stdout)
             .stderr(stderr);

@@ -72,7 +72,13 @@ enum SubCommand {
 
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
-struct CmdLaunch {}
+struct CmdLaunch {
+
+    /// The propolis-server binary to use
+    #[clap(short, long)]
+    propolis: Option<String>
+
+}
 
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
@@ -81,19 +87,29 @@ struct CmdDestroy {}
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdSerial {
+
+    /// Name of the VM to establish a serial connection to
     vm_name: String,
+
 }
 
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdReboot {
+
+    /// Name of the VM to reboot
     vm_name: String,
+
 }
 
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdHyperstop {
+
+    /// Name of the vm to stop
     vm_name: Option<String>,
+
+    /// Stop all vms in the topology
     #[clap(short, long)]
     all: bool,
 }
@@ -101,7 +117,15 @@ struct CmdHyperstop {
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdHyperstart {
+
+    /// The propolis-server binary to use
+    #[clap(short, long)]
+    propolis: Option<String>,
+
+    /// Name of the vm to start
     vm_name: Option<String>,
+
+    /// Start all vms in the topology
     #[clap(short, long)]
     all: bool,
 }
@@ -117,7 +141,11 @@ struct CmdNetDestroy { }
 #[derive(Parser)]
 #[clap(setting = AppSettings::InferSubcommands)]
 struct CmdSnapshot { 
+
+    /// Name of the VM to snaphost
     vm_name: String,
+
+    /// What to name the new snapshot
     snapshot_name: String,
 }
 
@@ -149,7 +177,11 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
 
     let opts: Opts = Opts::parse();
     match opts.subcmd {
-        SubCommand::Launch(_) => {
+        SubCommand::Launch(l) => {
+            match l.propolis {
+                Some(path) => r.propolis_binary = path,
+                None => {}
+            };
             launch(r).await;
             Ok(RunMode::Launch)
         },
@@ -184,15 +216,19 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             Ok(RunMode::Unspec)
         },
         SubCommand::Hyperstart(ref c) => {
+            let propolis_binary = match c.propolis {
+                Some(ref path) => path.clone(),
+                None => "propolis-server".into(),
+            };
             if c.all {
                 for x in &r.deployment.nodes {
-                    hyperstart(&x.name).await?;
+                    hyperstart(&x.name, propolis_binary.clone()).await?;
                 }
             } else {
                 match c.vm_name {
                     None => return Err(Error::Cli(
                             "vm name required unless --all flag is used".into())),
-                    Some(ref n) => hyperstart(n).await?,
+                    Some(ref n) => hyperstart(n, propolis_binary).await?,
                 }
             }
             Ok(RunMode::Unspec)
@@ -577,7 +613,7 @@ async fn hyperstop(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn hyperstart(name: &str) -> Result<(), Error> {
+async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
 
     // read topology
     let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
@@ -605,7 +641,7 @@ async fn hyperstart(name: &str) -> Result<(), Error> {
         .parse()?;
     let log = create_logger();
 
-    crate::launch_vm(&log, port, &id, node).await?;
+    crate::launch_vm(&log, &propolis_binary, port, &id, node).await?;
 
     Ok(())
 }

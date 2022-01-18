@@ -32,6 +32,7 @@ pub enum Error {
     AddrParse(#[from] std::net::AddrParseError),
     Propolis(#[from] propolis_client::Error),
     IntParse(#[from] std::num::ParseIntError),
+    TryIntParse(#[from] std::num::TryFromIntError),
     WsError(#[from] tokio_tungstenite::tungstenite::Error),
     Anyhow(#[from] anyhow::Error),
     Uuid(#[from] uuid::Error),
