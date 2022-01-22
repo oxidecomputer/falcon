@@ -32,7 +32,7 @@ pkg install \
 ## QuickStart
 
 ```Rust
-use libfalcon::{cli::{run, RunMode}, error::Error, Runner, unit::gb};
+use libfalcon::{cli::run, error::Error, Runner, unit::gb};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -40,12 +40,14 @@ async fn main() -> Result<(), Error> {
 
     // nodes, each with 2 cores and 2G of memory
     let violin = d.node("violin", "helios-1.0", 2, gb(2));
-    let piano = d.node("piano", "debian-11.0", 2, gb(2));
+    let piano = d.node("piano", "helios-11.0", 2, gb(2));
 
     // links
     d.link(violin, piano);
 
-    match run(&mut d).await?;
+    run(&mut d).await?;
+
+    Ok(())
 }
 ```
 
