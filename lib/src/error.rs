@@ -24,7 +24,7 @@ pub enum Error {
     #[error("wrap: {0}")]
     Wrap(String),
     #[error("netadm: {0}")]
-    Netadm(#[from] netadm_sys::Error),
+    Libnet(#[from] libnet::Error),
     #[error("cli: {0}")]
     Cli(String),
     Ron(#[from] ron::Error),

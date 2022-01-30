@@ -806,22 +806,22 @@ impl Link {
             let slink = d.simnet_link_name(e);
             let vlink = d.vnic_link_name(e);
 
-            let slink_h = netadm_sys::LinkHandle::Name(slink.clone());
-            let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
+            let slink_h = libnet::LinkHandle::Name(slink.clone());
+            let vlink_h = libnet::LinkHandle::Name(vlink.clone());
 
             // if dangling links exists, remove them
             debug!(r.log, "destroying link {}", &vlink);
-            netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
+            libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)?;
             debug!(r.log, "destroying link {}", &slink);
-            netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
+            libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating simnet link '{}'", &slink);
-            netadm_sys::create_simnet_link(
-                &slink, netadm_sys::LinkFlags::Active)?;
+            libnet::create_simnet_link(
+                &slink, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating vnic link '{}'", &vlink);
-            netadm_sys::create_vnic_link(
-                &vlink, &slink_h, netadm_sys::LinkFlags::Active)?;
+            libnet::create_vnic_link(
+                &vlink, &slink_h, libnet::LinkFlags::Active)?;
 
             debug!(r.log, "link pair created");
         }
@@ -829,9 +829,9 @@ impl Link {
         // make point to point connection beteween interfaces
         let slink0 = d.simnet_link_name(&self.endpoints[0]);
         let slink1 = d.simnet_link_name(&self.endpoints[1]);
-        let slink0_h = netadm_sys::LinkHandle::Name(slink0);
-        let slink1_h = netadm_sys::LinkHandle::Name(slink1);
-        netadm_sys::connect_simnet_peers(&slink0_h, &slink1_h)?;
+        let slink0_h = libnet::LinkHandle::Name(slink0);
+        let slink1_h = libnet::LinkHandle::Name(slink1);
+        libnet::connect_simnet_peers(&slink0_h, &slink1_h)?;
 
         Ok(())
     }
@@ -843,13 +843,13 @@ impl Link {
         for e in self.endpoints.iter() {
             let slink = d.simnet_link_name(e);
             let vlink = d.vnic_link_name(e);
-            let slink_h = netadm_sys::LinkHandle::Name(slink.clone());
-            let vlink_h = netadm_sys::LinkHandle::Name(vlink.clone());
+            let slink_h = libnet::LinkHandle::Name(slink.clone());
+            let vlink_h = libnet::LinkHandle::Name(vlink.clone());
 
             info!(r.log, "destroying link {}", &vlink);
-            netadm_sys::delete_link(&vlink_h, netadm_sys::LinkFlags::Active)?;
+            libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)?;
             info!(r.log, "destroying link {}", &slink);
-            netadm_sys::delete_link(&slink_h, netadm_sys::LinkFlags::Active)?;
+            libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
         }
 
         Ok(())
@@ -861,17 +861,17 @@ impl ExtLink {
     fn create(&self, r: &Runner) -> Result<(), Error> {
 
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
-        let vnic = netadm_sys::LinkHandle::Name(vnic_name.clone());
-        let host_ifx = netadm_sys::LinkHandle::Name(self.host_ifx.clone());
+        let vnic = libnet::LinkHandle::Name(vnic_name.clone());
+        let host_ifx = libnet::LinkHandle::Name(self.host_ifx.clone());
 
         // destroy any dangling links
         debug!(r.log, "destroying external link {}", &vnic_name);
-        netadm_sys::delete_link(&vnic, netadm_sys::LinkFlags::Active)?;
+        libnet::delete_link(&vnic, libnet::LinkFlags::Active)?;
 
         // create vnic
         info!(r.log, "creating external link {}", &vnic_name);
-        netadm_sys::create_vnic_link(
-            &vnic_name, &host_ifx, netadm_sys::LinkFlags::Active)?;
+        libnet::create_vnic_link(
+            &vnic_name, &host_ifx, libnet::LinkFlags::Active)?;
 
         debug!(r.log, "external link {}@{} created", &vnic_name, &self.host_ifx);
 
@@ -881,9 +881,9 @@ impl ExtLink {
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
 
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
-        let vnic = netadm_sys::LinkHandle::Name(vnic_name.clone());
+        let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         info!(r.log, "destroying external link {}", &vnic_name);
-        netadm_sys::delete_link(&vnic, netadm_sys::LinkFlags::Active)?;
+        libnet::delete_link(&vnic, libnet::LinkFlags::Active)?;
 
         Ok(())
     }
