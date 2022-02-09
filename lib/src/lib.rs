@@ -330,6 +330,14 @@ impl Runner {
 
     fn preflight(&self) -> Result<(), Error> {
 
+        // Verify all required executables are discoverable.
+        let out = Command::new(&self.propolis_binary).args(&["-V"]).output();
+        if out.is_err() {
+            return Err(Error::Exec(
+                format!("failed to find {} on PATH", &self.propolis_binary)
+            ))
+        }
+
         // ensure falcon working dir
         fs::create_dir_all(".falcon")?;
 
