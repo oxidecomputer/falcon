@@ -22,9 +22,11 @@ banner check
 #cargo fmt -- --check
 #cargo clippy
 
-banner "image setup"
+banner "setup"
 ./get-ovmf.sh
 ./setup-base-images.sh
+./get-propolis.sh
+
 
 export RUST_BACKTRACE=1
 export RUST_LOG=trace
