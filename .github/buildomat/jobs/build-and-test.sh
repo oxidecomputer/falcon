@@ -18,7 +18,7 @@ banner "build"
 ptime -m cargo build
 ptime -m cargo build --release
 
-#banner check
+banner check
 #cargo fmt -- --check
 #cargo clippy
 
