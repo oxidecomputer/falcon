@@ -441,24 +441,6 @@ impl Runner {
         Ok(sc.exec(&mut ws, cmd.to_string()).await?)
     }
 
-    /*
-    /// Run a command asynchronously in the node.
-    pub fn spawn(&self, n: NodeRef, cmd: &str) -> Receiver<Result<String, Error>> {
-        let (_tx, rx): (
-            Sender<Result<String, Error>>,
-            Receiver<Result<String, Error>>,
-        ) = mpsc::channel();
-
-        let _name = self.deployment.nodes[n.index].node_name(&self.deployment);
-        let _cmd = cmd.to_string();
-
-        thread::spawn(move || {
-            //TODO
-        });
-
-        rx
-    }
-    */
 }
 
 impl Deployment {
@@ -698,12 +680,6 @@ impl Node {
 
         Ok(())
     }
-
-    /*
-    fn node_name(&self, d: &Deployment) -> String {
-        format!("{}_{}", d.name, self.name)
-    }
-    */
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
         // get propolis pid
