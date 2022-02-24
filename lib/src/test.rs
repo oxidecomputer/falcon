@@ -67,30 +67,36 @@ mod test {
         d.launch().await?;
 
         // set ipv6 link local addresses
-        println!("VIOLIN DLADM\n{}\n", d.exec(violin, "dladm show-link").await?);
-        d.exec(
-            violin,
-            "ipadm create-addr -t -T addrconf duo_violin_vnic0/v6",
-        ).await?;
-        println!("VIOLIN IPADM\n{}\n", d.exec(violin, "ipadm show-addr").await?);
+        println!(
+            "VIOLIN DLADM\n{}\n",
+            d.exec(violin, "dladm show-link").await?
+        );
+        d.exec(violin, "ipadm create-addr -t -T addrconf vioif0/v6")
+            .await?;
+        println!(
+            "VIOLIN IPADM\n{}\n",
+            d.exec(violin, "ipadm show-addr").await?
+        );
 
         println!("PIANO DLADM\n{}\n", d.exec(piano, "dladm show-link").await?);
-        d.exec(piano, "ipadm create-addr -t -T addrconf duo_piano_vnic0/v6").await?;
+        d.exec(piano, "ipadm create-addr -t -T addrconf vioif0/v6")
+            .await?;
         println!("PIANO IPADM\n{}\n", d.exec(piano, "ipadm show-addr").await?);
 
         // get piano addresses
-        let piano_addr = d.exec(piano, "ipadm show-addr -p -o ADDR duo_piano_vnic0/v6").await?;
+        let piano_addr = d.exec(piano, "ipadm show-addr -po addr vioif0/v6").await?;
 
         // wait for piano address to become ready
         let mut retries = 0;
         loop {
-            let state = d.exec(piano, "ipadm show-addr -po state duo_piano_vnic0/v6").await?;
+            let state = d.exec(piano, "ipadm show-addr -po state vioif0/v6").await?;
             if state == "ok" {
                 break;
             }
+            println!("PIANO:vioif0/v6:state = '{}'", state);
             retries += 1;
             if retries >= 10 {
-                return Err(anyhow!("timed out waiting for duo_piano_vnic0/v6"));
+                return Err(anyhow!("timed out waiting for vioif0/v6"));
             }
             std::thread::sleep(std::time::Duration::from_secs(1))
         }
@@ -101,9 +107,8 @@ mod test {
 
         // verify links exist
         for l in links.iter() {
-            //crate::dladm::link_id(l, h)?;
-            let h = netadm_sys::LinkHandle::Name(l.clone());
-            netadm_sys::get_link(h.id()?)?;
+            let h = libnet::LinkHandle::Name(l.clone());
+            libnet::get_link(&h)?;
         }
 
         // This does a d.destroy() call
@@ -118,10 +123,10 @@ mod test {
     }
 
     fn check_link_absent(name: &String) -> Result<()> {
-        let h = netadm_sys::LinkHandle::Name(name.clone());
+        let h = libnet::LinkHandle::Name(name.clone());
         match h.id() {
             Ok(_) => return Err(anyhow!("link {} should be gone", name)),
-            Err(netadm_sys::Error::NotFound(_)) => return Ok(()),
+            Err(libnet::Error::NotFound(_)) => return Ok(()),
             Err(e) => return Err(anyhow!("{}", e)),
         }
     }

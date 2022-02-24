@@ -2,6 +2,7 @@
 
 members = [
     "lib",
+    "examples/solo",
     "examples/duo",
     "examples/duo-unit"
 ]

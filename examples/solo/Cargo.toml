@@ -1,0 +1,8 @@
+[package]
+name = "solo"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+libfalcon = { path = "../../lib" }
+tokio = { version = "1", features = ["full"] }

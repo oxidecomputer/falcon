@@ -16,7 +16,9 @@ Currently the nightly toolchain is required.
 Install `propolis-server` from the [falcon
 branch](https://github.com/oxidecomputer/propolis/tree/falcon). CI builds for
 that branch are
-[here](https://github.com/oxidecomputer/propolis/runs/5312397993).
+[here](https://github.com/oxidecomputer/propolis/runs/5312397993). The
+`get-propolis.sh` script can also be used to automatically install
+propolis-server form the current CI build.
 
 Set up firmware and OS base images.
 ```
@@ -90,6 +92,9 @@ This assumes that that the instructions in the install section have been run.
 
 ```
 cargo build
-pfexec cargo test
-pfexec cargo test -- --ignored
+pfexec cargo test -- --test-threads 1
+pfexec cargo test -- --test-threads 1 --ignored
 ```
+
+Due to a shared `.falcon` directory, concurrent tests are not possible at the
+current time.

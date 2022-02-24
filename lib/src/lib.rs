@@ -8,27 +8,20 @@ pub mod error;
 pub mod serial;
 pub mod unit;
 
-use tokio::time::{sleep, Duration};
-use std::net::{
-    IpAddr,
-    Ipv6Addr,
-    SocketAddr,
-};
-use std::str::FromStr;
-use std::convert::TryInto;
 use error::Error;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
-use serde::{Serialize, Deserialize};
-use ron::ser::{to_string_pretty, PrettyConfig};
-use slog::{debug, warn, info, error, Logger};
-use slog::Drain;
-use std::process::Command;
-use std::collections::BTreeMap;
 use futures::future::join_all;
+use ron::ser::{to_string_pretty, PrettyConfig};
+use serde::{Deserialize, Serialize};
+use slog::Drain;
+use slog::{debug, error, info, warn, Logger};
+use std::collections::BTreeMap;
+use std::convert::TryInto;
+use std::fs;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::path::PathBuf;
+use std::process::Command;
+use std::str::FromStr;
+use tokio::time::{sleep, Duration};
 
 pub struct Runner {
     /// The deployment object that describes the Falcon topology
@@ -129,7 +122,6 @@ pub struct ExtLink {
 /// given endpoint on a VM.
 #[derive(Serialize, Deserialize, Clone)]
 pub enum EndpointKind {
-
     /// Use a bhyve/viona kernel device. This is the default.
     Viona,
 
@@ -137,7 +129,6 @@ pub enum EndpointKind {
     /// you want. The usize parameter indicates radix of the connected Sidecar
     /// device.
     Sidemux(usize),
-
 }
 
 /// Endpoints are owned by a Link and reference nodes through a references.
@@ -151,7 +142,7 @@ pub struct Endpoint {
     index: usize,
 
     /// What kind of virtual device this endpoint will be realized as.
-    kind: EndpointKind
+    kind: EndpointKind,
 }
 
 /// Opaque handle to a link. Used by clients to perform API functions on
@@ -188,7 +179,6 @@ impl Runner {
             persistent: false,
             propolis_binary: "propolis-server".into(),
         }
-
     }
 
     /// Create a new node within this deployment with the given name. Names must
@@ -243,17 +233,11 @@ impl Runner {
     ///
     /// The sidecar node will get a regular bhyve/viona endpoint. The controller
     /// node will get a sidemux device with the provided radix.
-    pub fn sidecar_link(
-        &mut self,
-        sidecar: NodeRef,
-        controller: NodeRef,
-        radix: usize,
-    ) -> LinkRef {
-
+    pub fn sidecar_link(&mut self, sidecar: NodeRef, controller: NodeRef, radix: usize) -> LinkRef {
         let r = LinkRef {
             _index: self.deployment.links.len(),
         };
-        let l = Link{
+        let l = Link {
             endpoints: [
                 Endpoint {
                     node: sidecar,
@@ -271,21 +255,19 @@ impl Runner {
         self.deployment.nodes[sidecar.index].radix += 1;
         self.deployment.nodes[controller.index].radix += radix;
         r
-
     }
 
     /// Create an external link attached to `host_ifx`.
     pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
-        let endpoint = Endpoint{
+        let endpoint = Endpoint {
             node: n,
             index: self.deployment.nodes[n.index].radix,
             kind: EndpointKind::Viona,
         };
         let host_ifx = host_ifx.as_ref().into();
-        self.deployment.ext_links.push(ExtLink{
-            endpoint,
-            host_ifx,
-        });
+        self.deployment
+            .ext_links
+            .push(ExtLink { endpoint, host_ifx });
         self.deployment.nodes[n.index].radix += 1;
     }
 
@@ -302,7 +284,7 @@ impl Runner {
             .map_err(|e| Error::PathError(format!("{}: {}", src.as_ref(), e)))?;
         let cpath_str = cpath
             .to_str()
-            .ok_or(Error::PathError(format!("bad path: {}", src.as_ref())))?;
+            .ok_or_else(|| Error::PathError(format!("bad path: {}", src.as_ref())))?;
 
         self.deployment.nodes[n.index].mounts.push(Mount {
             source: cpath_str.to_string(),
@@ -317,7 +299,6 @@ impl Runner {
     /// set up the serial console for each VM and, run any user defined exec
     /// statements.
     pub async fn launch(&self) -> Result<(), Error> {
-
         self.preflight()?;
         match self.do_launch().await {
             Ok(()) => Ok(()),
@@ -329,51 +310,46 @@ impl Runner {
     }
 
     fn preflight(&self) -> Result<(), Error> {
-
         // Verify all required executables are discoverable.
         let out = Command::new(&self.propolis_binary).args(&["-V"]).output();
         if out.is_err() {
-            return Err(Error::Exec(
-                format!("failed to find {} on PATH", &self.propolis_binary)
-            ))
+            return Err(Error::Exec(format!(
+                "failed to find {} on PATH",
+                &self.propolis_binary
+            )));
         }
 
         // ensure falcon working dir
         fs::create_dir_all(".falcon")?;
 
         // write falcon config
-        let pretty = PrettyConfig::new()
-            .separate_tuple_members(true);
+        let pretty = PrettyConfig::new().separate_tuple_members(true);
         let out = format!("{}\n", to_string_pretty(&self.deployment, pretty)?);
         fs::write(".falcon/topology.ron", out)?;
 
         for n in self.deployment.nodes.iter() {
-            n.preflight(&self)?;
+            n.preflight(self)?;
         }
 
         Ok(())
     }
 
     async fn net_launch(&self) -> Result<(), Error> {
-
         info!(self.log, "creating links");
         for l in self.deployment.links.iter() {
-            l.create(&self)?;
+            l.create(self)?;
         }
 
         info!(self.log, "creating external links");
         for l in self.deployment.ext_links.iter() {
-            l.create(&self)?;
+            l.create(self)?;
         }
 
         Ok(())
-
     }
 
     async fn do_launch(&self) -> Result<(), Error> {
-
         self.net_launch().await?;
-
 
         info!(self.log, "creating nodes");
 
@@ -383,7 +359,7 @@ impl Runner {
                 Some(p) => p,
                 None => return Err(Error::NoPorts),
             };
-            fs.push(n.launch(&self, port as u32));
+            fs.push(n.launch(self, port as u32));
         }
         for x in join_all(fs).await {
             x?;
@@ -395,12 +371,12 @@ impl Runner {
     pub fn net_destroy(&self) -> Result<(), Error> {
         info!(self.log, "destroying links");
         for l in self.deployment.links.iter() {
-            l.destroy(&self)?;
+            l.destroy(self)?;
         }
 
         info!(self.log, "destroying external links");
         for l in self.deployment.ext_links.iter() {
-            l.destroy(&self)?;
+            l.destroy(self)?;
         }
         Ok(())
     }
@@ -408,10 +384,9 @@ impl Runner {
     /// Tear down all the nodes, followed by the links and the ZFS pool
     // TODO in parallel
     pub fn destroy(&self) -> Result<(), Error> {
-
         info!(self.log, "destroying nodes");
         for n in self.deployment.nodes.iter() {
-            n.destroy(&self)?;
+            n.destroy(self)?;
         }
 
         self.net_destroy()?;
@@ -419,7 +394,9 @@ impl Runner {
         // Destroy images
         info!(self.log, "destroying images");
         let img = format!("rpool/falcon/topo/{}", self.deployment.name);
-        Command::new("zfs").args(&["destroy", "-r", img.as_ref()]).output()?;
+        Command::new("zfs")
+            .args(&["destroy", "-r", img.as_ref()])
+            .output()?;
 
         // Destroy workspace
         info!(self.log, "destroying workspace");
@@ -430,65 +407,38 @@ impl Runner {
 
     /// Run a command synchronously in the vm.
     pub async fn exec(&self, n: NodeRef, cmd: &str) -> Result<String, Error> {
-
         let name = self.deployment.nodes[n.index].name.clone();
         self.do_exec(&name, cmd).await
     }
 
     async fn do_exec(&self, name: &str, cmd: &str) -> Result<String, Error> {
-
         let id = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
             Ok(u) => u,
             Err(e) => {
-                return Err(Error::NotFound(
-                        format!("propolis uuid for {}: {}", name, e)
-                ));
+                return Err(Error::NotFound(format!(
+                    "propolis uuid for {}: {}",
+                    name, e
+                )));
             }
         };
 
         let port = match fs::read_to_string(format!(".falcon/{}.port", name)) {
-            Ok(p) => {
-                u16::from_str_radix(p.as_str(), 10)?
-            },
+            Ok(p) => p.as_str().parse::<u16>()?,
             Err(e) => {
-                return Err(Error::NotFound(
-                        format!("get propolis port for {}: {}", name, e)
-                ));
+                return Err(Error::NotFound(format!(
+                    "get propolis port for {}: {}",
+                    name, e
+                )));
             }
         };
 
-
-        let addr = SocketAddr::new(
-                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
-                port,
-        );
+        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), port);
 
         let mut sc = serial::SerialCommander::new(addr, id, self.log.clone());
         let mut ws = sc.connect().await?;
 
         // if we are here, we are already logged in on the serial port
         Ok(sc.exec(&mut ws, cmd.to_string()).await?)
-    }
-
-    /// Run a command asynchronously in the node.
-    pub fn spawn(
-        &self,
-        n: NodeRef,
-        cmd: &str,
-    ) -> Receiver<Result<String, Error>> {
-        let (_tx, rx): (
-            Sender<Result<String, Error>>,
-            Receiver<Result<String, Error>>,
-        ) = mpsc::channel();
-
-        let _name = self.deployment.nodes[n.index].node_name(&self.deployment);
-        let _cmd = cmd.to_string();
-
-        thread::spawn(move || {
-            //TODO
-        });
-
-        rx
     }
 
 }
@@ -520,7 +470,6 @@ impl Deployment {
             self.name, self.nodes[e.node.index].name, e.index,
         )
     }
-
 }
 
 impl Drop for Runner {
@@ -536,24 +485,18 @@ impl Drop for Runner {
 
 impl Node {
     fn preflight(&self, r: &Runner) -> Result<(), Error> {
-
         //Clone base image
 
         //TODO incorporate version into img
         let source = format!("rpool/falcon/img/{}@base", self.image);
-        let dest = format!(
-            "rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
+        let dest = format!("rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
 
         let out = Command::new("zfs")
-            .args(&[
-                "clone",
-                "-p",
-                source.as_ref(),
-                dest.as_ref(),
-            ]).output()?;
+            .args(&["clone", "-p", source.as_ref(), dest.as_ref()])
+            .output()?;
 
         if !out.status.success() {
-            return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
         }
 
         // create propolis config
@@ -568,11 +511,10 @@ impl Node {
 
         let zvol = format!(
             "/dev/zvol/dsk/rpool/falcon/topo/{}/{}",
-            r.deployment.name,
-            self.name,
+            r.deployment.name, self.name,
         );
         device_options.insert(
-            "block_dev".to_string(), 
+            "block_dev".to_string(),
             toml::Value::String("main_disk".to_string()),
         );
         device_options.insert(
@@ -580,19 +522,16 @@ impl Node {
             toml::Value::String("0.4.0".to_string()),
         );
         devices.insert(
-            "block0".to_string(), 
-            propolis_server::config::Device{
+            "block0".to_string(),
+            propolis_server::config::Device {
                 driver: "pci-virtio-block".to_string(),
                 options: device_options,
             },
         );
-        blockdev_options.insert(
-            "path".to_string(),
-            toml::Value::String(zvol),
-        );
+        blockdev_options.insert("path".to_string(), toml::Value::String(zvol));
         block_devs.insert(
             "main_disk".to_string(),
-            propolis_server::config::BlockDevice{
+            propolis_server::config::BlockDevice {
                 bdtype: "file".to_string(),
                 options: blockdev_options,
             },
@@ -600,7 +539,6 @@ impl Node {
 
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
-
             let mut opts = BTreeMap::new();
             opts.insert("source".to_string(), m.source.clone().into());
             opts.insert("target".to_string(), m.destination.clone().into());
@@ -608,12 +546,11 @@ impl Node {
 
             devices.insert(
                 format!("fs{}", i),
-                propolis_server::config::Device{
+                propolis_server::config::Device {
                     driver: "pci-virtio-9p".to_string(),
                     options: opts,
                 },
             );
-
         }
 
         // network interfaces
@@ -638,17 +575,14 @@ impl Node {
                     EndpointKind::Viona => {
                         //links.push(d.vnic_link_name(e));
                         let mut opts = BTreeMap::new();
-                        opts.insert(
-                            "vnic".to_string(),
-                            toml::Value::String(d.vnic_link_name(e)),
-                        );
+                        opts.insert("vnic".to_string(), toml::Value::String(d.vnic_link_name(e)));
                         opts.insert(
                             "pci-path".to_string(),
                             toml::Value::String(format!("0.{}.0", pci_index)),
                         );
                         devices.insert(
                             format!("net{}", viona_index),
-                            propolis_server::config::Device{
+                            propolis_server::config::Device {
                                 driver: "pci-virtio-viona".to_string(),
                                 options: opts,
                             },
@@ -658,10 +592,7 @@ impl Node {
                     }
                     EndpointKind::Sidemux(radix) => {
                         let mut opts = BTreeMap::new();
-                        opts.insert(
-                            "radix".to_string(),
-                            toml::Value::Integer(radix.try_into()?),
-                        );
+                        opts.insert("radix".to_string(), toml::Value::Integer(radix.try_into()?));
                         opts.insert(
                             "link-name".to_string(),
                             toml::Value::String(d.vnic_link_name(e)),
@@ -672,7 +603,7 @@ impl Node {
                         );
                         devices.insert(
                             format!("sidemux{}", sidemux_index),
-                            propolis_server::config::Device{
+                            propolis_server::config::Device {
                                 driver: "sidemux".into(),
                                 options: opts,
                             },
@@ -683,8 +614,7 @@ impl Node {
                 }
             }
         }
-            
-        
+
         // write propolis instance config to .falcon/<node-name>.toml
         let propolis_config = propolis_server::config::Config::new(
             PathBuf::from("/var/ovmf/OVMF_CODE.fd"), //TODO needs to come from somewhere
@@ -693,24 +623,19 @@ impl Node {
         );
 
         let config_toml = toml::to_string(&propolis_config)?;
-        fs::write(
-            format!(".falcon/{}.toml", self.name),
-            config_toml,
-        )?;
+        fs::write(format!(".falcon/{}.toml", self.name), config_toml)?;
 
         Ok(())
-
     }
 
     async fn launch(&self, r: &Runner, port: u32) -> Result<(), Error> {
-
         // launch vm
-        
+
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, &r.propolis_binary, port, &id, &self).await?;
+        launch_vm(&r.log, &r.propolis_binary, port, &id, self).await?;
 
         // initial vm configuration
-        
+
         let ws_sockaddr = format!("[::1]:{}", port);
 
         // login to serial console
@@ -719,67 +644,63 @@ impl Node {
             id.to_string(),
             r.log.clone(),
         );
-        sc.start().await?;
+        let mut ws = sc.start().await?;
 
         // setup mounts
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
             info!(r.log, "mouting {}", mount.destination);
-            r.do_exec(&self.name, "p9kp load-driver").await?;
+            sc.exec(&mut ws, "p9kp load-driver".into()).await?;
             let cmd = format!(
-                "mkdir -p {dst}; cd {dst}; p9kp pull", dst=mount.destination);
-            r.do_exec(&self.name, &cmd).await?;
-            r.do_exec(&self.name, "cd").await?;
+                "mkdir -p {dst}; cd {dst}; p9kp pull",
+                dst = mount.destination
+            );
+            sc.exec(&mut ws, cmd).await?;
+            sc.exec(&mut ws, "cd".into()).await?;
         }
 
         // set hostname
         let cmd = format!("hostname {}", self.name);
-        r.do_exec(&self.name, &cmd).await?;
+        sc.exec(&mut ws, cmd).await?;
         let cmd = format!(
             "echo '::1 {name}.local {name}' >> /etc/hosts",
-            name=self.name,
+            name = self.name,
         );
-        r.do_exec(&self.name, &cmd).await?;
+        sc.exec(&mut ws, cmd).await?;
         let cmd = format!(
             "echo '127.0.0.1 {name}.local {name}' >> /etc/hosts",
-            name=self.name,
+            name = self.name,
         );
-        r.do_exec(&self.name, &cmd).await?;
+        sc.exec(&mut ws, cmd).await?;
 
         // log out and log back in to get updated console
-        let mut ws = sc.connect().await?;
+        //let mut ws = sc.connect().await?;
         sc.logout(&mut ws).await?;
         sc.login(&mut ws).await?;
-
 
         Ok(())
     }
 
-    fn node_name(&self, d: &Deployment) -> String {
-        format!("{}_{}", d.name, self.name)
-    }
-
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
-
         // get propolis pid
         let pid = match fs::read_to_string(format!(".falcon/{}.pid", self.name)) {
-            Ok(pid) => {
-                match i32::from_str_radix(pid.as_ref(), 10) {
-                    Ok(pid) => pid,
-                    Err(e) => {
-                        warn!(r.log, "parse propolis pid for {}: {}", self.name, e);
-                        return Ok(());
-                    }
+            Ok(pid) => match pid.parse::<i32>() {
+                Ok(pid) => pid,
+                Err(e) => {
+                    warn!(r.log, "parse propolis pid for {}: {}", self.name, e);
+                    return Ok(());
                 }
-            }
-            Err(e) =>  {
+            },
+            Err(e) => {
                 warn!(r.log, "get propolis pid for {}: {}", self.name, e);
                 return Ok(());
             }
         };
 
         // kill propolis instance
-        unsafe { libc::kill(pid, libc::SIGKILL); }
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
 
         // get instance uuid
         let uuid = match fs::read_to_string(format!(".falcon/{}.uuid", self.name)) {
@@ -792,7 +713,10 @@ impl Node {
 
         // destroy bhyve vm
         let vm_arg = format!("--vm={}", uuid);
-        match Command::new("bhyvectl").args(&["--destroy", vm_arg.as_ref()]).output() {
+        match Command::new("bhyvectl")
+            .args(&["--destroy", vm_arg.as_ref()])
+            .output()
+        {
             Ok(_) => {}
             Err(e) => {
                 warn!(r.log, "delete bhyve vm for {}: {}", self.name, e);
@@ -806,7 +730,6 @@ impl Node {
 
 impl Link {
     fn create(&self, r: &Runner) -> Result<(), Error> {
-
         let d = &r.deployment;
 
         // create interfaces
@@ -824,12 +747,10 @@ impl Link {
             libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating simnet link '{}'", &slink);
-            libnet::create_simnet_link(
-                &slink, libnet::LinkFlags::Active)?;
+            libnet::create_simnet_link(&slink, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating vnic link '{}'", &vlink);
-            libnet::create_vnic_link(
-                &vlink, &slink_h, libnet::LinkFlags::Active)?;
+            libnet::create_vnic_link(&vlink, &slink_h, libnet::LinkFlags::Active)?;
 
             debug!(r.log, "link pair created");
         }
@@ -845,7 +766,6 @@ impl Link {
     }
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
-
         let d = &r.deployment;
 
         for e in self.endpoints.iter() {
@@ -865,9 +785,7 @@ impl Link {
 }
 
 impl ExtLink {
-
     fn create(&self, r: &Runner) -> Result<(), Error> {
-
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         let host_ifx = libnet::LinkHandle::Name(self.host_ifx.clone());
@@ -878,16 +796,17 @@ impl ExtLink {
 
         // create vnic
         info!(r.log, "creating external link {}", &vnic_name);
-        libnet::create_vnic_link(
-            &vnic_name, &host_ifx, libnet::LinkFlags::Active)?;
+        libnet::create_vnic_link(&vnic_name, &host_ifx, libnet::LinkFlags::Active)?;
 
-        debug!(r.log, "external link {}@{} created", &vnic_name, &self.host_ifx);
+        debug!(
+            r.log,
+            "external link {}@{} created", &vnic_name, &self.host_ifx
+        );
 
         Ok(())
     }
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
-
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         info!(r.log, "destroying external link {}", &vnic_name);
@@ -895,91 +814,85 @@ impl ExtLink {
 
         Ok(())
     }
-
 }
 
 pub(crate) async fn launch_vm(
     log: &Logger,
-    propolis_binary: &String,
+    propolis_binary: &str,
     port: u32,
     id: &uuid::Uuid,
     node: &Node,
 ) -> Result<(), Error> {
-        // launch propolis-server
+    // launch propolis-server
 
-        fs::write(format!(".falcon/{}.port", node.name),  port.to_string())?;
+    fs::write(format!(".falcon/{}.port", node.name), port.to_string())?;
 
-        let stdout  = fs::File::create(format!(".falcon/{}.out", node.name))?;
-        let stderr  = fs::File::create(format!(".falcon/{}.err", node.name))?;
-        let config = format!(".falcon/{}.toml", node.name);
-        let sockaddr = format!("[::]:{}", port);
-        let mut cmd = Command::new(propolis_binary);
-        cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
-            .stdout(stdout)
-            .stderr(stderr);
-        let child = cmd.spawn()?;
+    let stdout = fs::File::create(format!(".falcon/{}.out", node.name))?;
+    let stderr = fs::File::create(format!(".falcon/{}.err", node.name))?;
+    let config = format!(".falcon/{}.toml", node.name);
+    let sockaddr = format!("[::]:{}", port);
+    let mut cmd = Command::new(propolis_binary);
+    cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
+        .stdout(stdout)
+        .stderr(stderr);
+    let child = cmd.spawn()?;
 
-        fs::write(format!(
-                ".falcon/{}.pid", node.name), child.id().to_string())?;
+    fs::write(format!(".falcon/{}.pid", node.name), child.id().to_string())?;
 
-        info!(log,
-            "launched instance {} with pid {} on port {}",
-            node.name,
-            child.id(),
-            port,
-        );
+    info!(
+        log,
+        "launched instance {} with pid {} on port {}",
+        node.name,
+        child.id(),
+        port,
+    );
 
-        let sockaddr = format!("[::1]:{}", port);
+    let sockaddr = format!("[::1]:{}", port);
 
-        // create vm instance
-        let client = propolis_client::Client::new(
-            SocketAddr::from_str(sockaddr.as_ref())?,
-            log.clone(),
-        );
+    // create vm instance
+    let client =
+        propolis_client::Client::new(SocketAddr::from_str(sockaddr.as_ref())?, log.clone());
 
+    fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
-        fs::write(format!(
-                ".falcon/{}.uuid", node.name), id.to_string())?;
+    let properties = propolis_client::api::InstanceProperties {
+        id: *id,
+        name: node.name.clone(),
+        description: "a falcon vm".to_string(),
+        image_id: uuid::Uuid::default(),
+        bootrom_id: uuid::Uuid::default(),
+        memory: node.memory,
+        vcpus: node.cores,
+    };
+    let req = propolis_client::api::InstanceEnsureRequest {
+        properties,
+        nics: Vec::new(),
+        disks: Vec::new(),
+        migrate: None,
+    };
 
-        let properties = propolis_client::api::InstanceProperties {
-            id: *id,
-            name: node.name.clone(),
-            description: "a falcon vm".to_string(),
-            image_id: uuid::Uuid::default(),
-            bootrom_id: uuid::Uuid::default(),
-            memory: node.memory,
-            vcpus: node.cores,
-        };
-        let req = propolis_client::api::InstanceEnsureRequest {
-            properties,
-            nics: Vec::new(),
-            disks: Vec::new(),
-            migrate: None,
-        };
-
-        // we just launched the instance, so wait for it to become ready
-        let mut success = false;
-        for _ in 0..30 {
-            match client.instance_ensure(&req).await {
-                Ok(_) => {
-                    success = true;
-                    break;
-                }
-                Err(_) => {
-                    sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
+    // we just launched the instance, so wait for it to become ready
+    let mut success = false;
+    for _ in 0..30 {
+        match client.instance_ensure(&req).await {
+            Ok(_) => {
+                success = true;
+                break;
+            }
+            Err(_) => {
+                sleep(Duration::from_secs(1)).await;
+                continue;
             }
         }
-        if !success {
-            client.instance_ensure(&req).await?;
-        }
+    }
+    if !success {
+        client.instance_ensure(&req).await?;
+    }
 
-        // run vm instance
-        client.instance_state_put(
-            *id,
-            propolis_client::api::InstanceStateRequested::Run,
-        ).await?;
+    // run vm instance
+    client
+        .instance_state_put(*id, propolis_client::api::InstanceStateRequested::Run)
+        .await?;
 
-        Ok(())
+    Ok(())
 }
