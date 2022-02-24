@@ -67,15 +67,20 @@ mod test {
         d.launch().await?;
 
         // set ipv6 link local addresses
-        println!("VIOLIN DLADM\n{}\n", d.exec(violin, "dladm show-link").await?);
-        d.exec(
-            violin,
-            "ipadm create-addr -t -T addrconf vioif0/v6",
-        ).await?;
-        println!("VIOLIN IPADM\n{}\n", d.exec(violin, "ipadm show-addr").await?);
+        println!(
+            "VIOLIN DLADM\n{}\n",
+            d.exec(violin, "dladm show-link").await?
+        );
+        d.exec(violin, "ipadm create-addr -t -T addrconf vioif0/v6")
+            .await?;
+        println!(
+            "VIOLIN IPADM\n{}\n",
+            d.exec(violin, "ipadm show-addr").await?
+        );
 
         println!("PIANO DLADM\n{}\n", d.exec(piano, "dladm show-link").await?);
-        d.exec(piano, "ipadm create-addr -t -T addrconf vioif0/v6").await?;
+        d.exec(piano, "ipadm create-addr -t -T addrconf vioif0/v6")
+            .await?;
         println!("PIANO IPADM\n{}\n", d.exec(piano, "ipadm show-addr").await?);
 
         // get piano addresses

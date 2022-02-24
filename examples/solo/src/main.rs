@@ -1,4 +1,4 @@
-use libfalcon::{cli::run, error::Error, Runner, unit::gb};
+use libfalcon::{cli::run, error::Error, unit::gb, Runner};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

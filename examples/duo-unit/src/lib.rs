@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use anyhow::{anyhow, Result};
-    use libfalcon::{Runner, unit::gb};
+    use libfalcon::{unit::gb, Runner};
 
     #[tokio::test]
     #[ignore]
@@ -16,14 +16,15 @@ mod tests {
         d.launch().await?;
 
         // set ipv6 link local addresses
-        d.exec(
-            violin,
-            "ipadm create-addr -t -T addrconf vioif0/v6",
-        ).await?;
-        d.exec(piano, "ipadm create-addr -t -T addrconf vioif0/v6").await?;
+        d.exec(violin, "ipadm create-addr -t -T addrconf vioif0/v6")
+            .await?;
+        d.exec(piano, "ipadm create-addr -t -T addrconf vioif0/v6")
+            .await?;
 
         // get piano addresses
-        let piano_addr = d.exec(piano, "ipadm show-addr -p -o ADDR vioif0/v6").await?;
+        let piano_addr = d
+            .exec(piano, "ipadm show-addr -p -o ADDR vioif0/v6")
+            .await?;
 
         // wait for piano address to become ready
         let mut retries = 0;

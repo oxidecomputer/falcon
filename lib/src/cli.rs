@@ -1,29 +1,26 @@
 // Copyright 2021 Oxide Computer Company
 
 use std::fs;
-use std::{
-    net::{IpAddr, SocketAddr, Ipv4Addr},
-    os::unix::prelude::AsRawFd,
-    io::{stdout, Write},
-};
 use std::process::Command;
+use std::{
+    io::{stdout, Write},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    os::unix::prelude::AsRawFd,
+};
 
 use anyhow::{anyhow, Context};
+use colored::*;
 use futures::{SinkExt, StreamExt};
-use propolis_client::{
-    api::InstanceStateRequested,
-    Client,
-};
+use propolis_client::{api::InstanceStateRequested, Client};
+use ron::de::from_str;
+use slog::{o, warn, Drain, Level, Logger};
+use tabwriter::TabWriter;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::Message;
-use slog::{warn, o, Drain, Level, Logger};
-use colored::*;
-use tabwriter::TabWriter;
-use ron::de::{from_str};
 
 use clap::Parser;
 
-use crate::{error::Error, Runner, Deployment};
+use crate::{error::Error, Deployment, Runner};
 
 pub enum RunMode {
     Unspec,
@@ -41,7 +38,6 @@ struct Opts {
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
-
 
 #[derive(Parser)]
 enum SubCommand {
@@ -70,11 +66,9 @@ enum SubCommand {
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdLaunch {
-
     /// The propolis-server binary to use
     #[clap(short, long)]
-    propolis: Option<String>
-
+    propolis: Option<String>,
 }
 
 #[derive(Parser)]
@@ -84,25 +78,20 @@ struct CmdDestroy {}
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdSerial {
-
     /// Name of the VM to establish a serial connection to
     vm_name: String,
-
 }
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdReboot {
-
     /// Name of the VM to reboot
     vm_name: String,
-
 }
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdHyperstop {
-
     /// Name of the vm to stop
     vm_name: Option<String>,
 
@@ -114,7 +103,6 @@ struct CmdHyperstop {
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdHyperstart {
-
     /// The propolis-server binary to use
     #[clap(short, long)]
     propolis: Option<String>,
@@ -129,16 +117,15 @@ struct CmdHyperstart {
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
-struct CmdNetCreate { }
+struct CmdNetCreate {}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
-struct CmdNetDestroy { }
+struct CmdNetDestroy {}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
-struct CmdSnapshot { 
-
+struct CmdSnapshot {
     /// Name of the VM to snaphost
     vm_name: String,
 
@@ -181,15 +168,15 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             };
             launch(r).await;
             Ok(RunMode::Launch)
-        },
+        }
         SubCommand::Destroy(_) => {
             destroy(r);
             Ok(RunMode::Destroy)
-        },
+        }
         SubCommand::Serial(ref c) => {
             console(&c.vm_name).await?;
             Ok(RunMode::Unspec)
-        },
+        }
         SubCommand::Info(_) => {
             info(r)?;
             Ok(RunMode::Unspec)
@@ -197,7 +184,7 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
         SubCommand::Reboot(ref c) => {
             reboot(&c.vm_name).await?;
             Ok(RunMode::Unspec)
-        },
+        }
         SubCommand::Hyperstop(ref c) => {
             if c.all {
                 for x in &r.deployment.nodes {
@@ -205,13 +192,16 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
                 }
             } else {
                 match c.vm_name {
-                    None => return Err(Error::Cli(
-                            "vm name required unless --all flag is used".into())),
+                    None => {
+                        return Err(Error::Cli(
+                            "vm name required unless --all flag is used".into(),
+                        ))
+                    }
                     Some(ref n) => hyperstop(n).await?,
                 }
             }
             Ok(RunMode::Unspec)
-        },
+        }
         SubCommand::Hyperstart(ref c) => {
             let propolis_binary = match c.propolis {
                 Some(ref path) => path.clone(),
@@ -223,13 +213,16 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
                 }
             } else {
                 match c.vm_name {
-                    None => return Err(Error::Cli(
-                            "vm name required unless --all flag is used".into())),
+                    None => {
+                        return Err(Error::Cli(
+                            "vm name required unless --all flag is used".into(),
+                        ))
+                    }
                     Some(ref n) => hyperstart(n, propolis_binary).await?,
                 }
             }
             Ok(RunMode::Unspec)
-        },
+        }
         SubCommand::Netcreate(_) => {
             netcreate(r).await;
             Ok(RunMode::Unspec)
@@ -243,17 +236,12 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             Ok(RunMode::Unspec)
         }
     }
-
 }
 
 fn info(r: &Runner) -> anyhow::Result<()> {
-
     let mut tw = TabWriter::new(stdout());
 
-    println!("{} {}",
-        "name:".dimmed(),
-        r.deployment.name,
-    );
+    println!("{} {}", "name:".dimmed(), r.deployment.name,);
 
     println!("{}", "Nodes".bright_black());
     write!(
@@ -277,10 +265,7 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     for x in &r.deployment.nodes {
         let mount = {
             if x.mounts.len() > 0 {
-                format!("{} -> {}",
-                    x.mounts[0].source,
-                    x.mounts[0].destination,
-                )
+                format!("{} -> {}", x.mounts[0].source, x.mounts[0].destination,)
             } else {
                 "".into()
             }
@@ -288,34 +273,18 @@ fn info(r: &Runner) -> anyhow::Result<()> {
         write!(
             &mut tw,
             "{}\t{}\t{}\t{}\t{}\n",
-            x.name,
-            x.image,
-            x.radix,
-            mount,
-            x.id,
+            x.name, x.image, x.radix, mount, x.id,
         )?;
         if x.mounts.len() > 1 {
             for m in &x.mounts[1..] {
-                let mount = format!("{} -> {}",
-                    m.source,
-                    m.destination,
-                );
-                write!(
-                    &mut tw,
-                    "{}\t{}\t{}\t{}\t{}\n",
-                    "",
-                    "",
-                    "",
-                    mount,
-                    "",
-                )?;
+                let mount = format!("{} -> {}", m.source, m.destination,);
+                write!(&mut tw, "{}\t{}\t{}\t{}\t{}\n", "", "", "", mount, "",)?;
             }
         }
     }
     tw.flush()?;
 
     Ok(())
-
 }
 
 async fn launch(r: &Runner) {
@@ -340,10 +309,9 @@ fn netdestroy(r: &Runner) {
 }
 
 fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
-
     // read topology
     let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
-    let d: Deployment = from_str(&topo_ron)?; 
+    let d: Deployment = from_str(&topo_ron)?;
 
     // get node from topology
     let mut node = None;
@@ -354,65 +322,48 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
     }
 
     let node = match node {
-        None => {
-            return Err(Error::NotFound(cmd.vm_name.into()))
-        }
-        Some(node) => node
+        None => return Err(Error::NotFound(cmd.vm_name.into())),
+        Some(node) => node,
     };
 
-    let source = format!("rpool/falcon/topo/{}/{}",
-        d.name,
-        node.name
-    );
+    let source = format!("rpool/falcon/topo/{}/{}", d.name, node.name);
     let source_snapshot = format!("{}@base", source);
 
-    let dest = format!("rpool/falcon/img/{}",
-        cmd.snapshot_name,
-    );
+    let dest = format!("rpool/falcon/img/{}", cmd.snapshot_name,);
     let dest_snapshot = format!("{}@base", source);
 
     // first take a snapshot of the node clone
     let out = Command::new("zfs")
-        .args(&[
-            "snapshot",
-            source_snapshot.as_ref(),
-        ]).output()?;
+        .args(&["snapshot", source_snapshot.as_ref()])
+        .output()?;
     if !out.status.success() {
-        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?));
     }
 
     // next clone the source snapshot to a new base image
     let out = Command::new("zfs")
-        .args(&[
-            "clone",
-            source_snapshot.as_ref(),
-            dest.as_ref(),
-        ]).output()?;
+        .args(&["clone", source_snapshot.as_ref(), dest.as_ref()])
+        .output()?;
 
     if !out.status.success() {
-        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?));
     }
 
     // promote the base image to uncouple from source snapshot
     let out = Command::new("zfs")
-        .args(&[
-            "promote",
-            dest.as_ref(),
-        ]).output()?;
+        .args(&["promote", dest.as_ref()])
+        .output()?;
     if !out.status.success() {
-        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?));
     }
 
     // finally create base snapshot for new image
     let out = Command::new("zfs")
-        .args(&[
-            "snapshot",
-            dest_snapshot.as_ref(),
-        ]).output()?;
+        .args(&["snapshot", dest_snapshot.as_ref()])
+        .output()?;
     if !out.status.success() {
-        return Err(Error::Zfs(String::from_utf8(out.stderr)?))
+        return Err(Error::Zfs(String::from_utf8(out.stderr)?));
     }
-
 
     Ok(())
 }
@@ -425,31 +376,21 @@ fn destroy(r: &Runner) {
 }
 
 async fn console(name: &str) -> Result<(), Error> {
-
     let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
         .trim_end()
         .parse()?;
 
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), port);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let log = create_logger();
     let client = Client::new(addr.clone(), log.new(o!()));
 
-    serial(
-        &client,
-        addr.clone(),
-        name.into(),
-    ).await?;
+    serial(&client, addr.clone(), name.into()).await?;
 
     Ok(())
-
 }
 
 // TODO copy pasta from propolis/cli/src/main.rs
-async fn serial(
-    client: &Client,
-    addr: SocketAddr,
-    name: String,
-) -> anyhow::Result<()> {
+async fn serial(client: &Client, addr: SocketAddr, name: String) -> anyhow::Result<()> {
     // Grab the Instance UUID
     let id = client
         .instance_get_uuid(&name)
@@ -461,8 +402,8 @@ async fn serial(
         .await
         .with_context(|| anyhow!("failed to create serial websocket stream"))?;
 
-    let _raw_guard = RawTermiosGuard::stdio_guard()
-        .with_context(|| anyhow!("failed to set raw mode"))?;
+    let _raw_guard =
+        RawTermiosGuard::stdio_guard().with_context(|| anyhow!("failed to set raw mode"))?;
 
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
@@ -532,7 +473,7 @@ impl Drop for RawTermiosGuard {
 fn create_logger() -> Logger {
     let decorator = slog_term::TermDecorator::new().stderr().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let level =  Level::Debug;
+    let level = Level::Debug;
     let drain = slog::LevelFilter(drain, level).fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
     let logger = Logger::root(drain, o!());
@@ -540,12 +481,11 @@ fn create_logger() -> Logger {
 }
 
 async fn reboot(name: &str) -> Result<(), Error> {
-
     let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
         .trim_end()
         .parse()?;
 
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), port);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let log = create_logger();
     let client = Client::new(addr.clone(), log.new(o!()));
 
@@ -562,31 +502,28 @@ async fn reboot(name: &str) -> Result<(), Error> {
         .with_context(|| anyhow!("failed to reboot machine"))?;
 
     Ok(())
-
 }
 
 async fn hyperstop(name: &str) -> Result<(), Error> {
-
     let log = create_logger();
 
     let pidfile = format!(".falcon/{}.pid", name);
-    
+
     // read pid
     match fs::read_to_string(&pidfile) {
-        Ok(pid) => {
-            match pid.trim_end().parse() {
-                Ok(pid) => {
-                    unsafe { libc::kill(pid, libc::SIGKILL); }
-                    fs::remove_file(pidfile)?;
+        Ok(pid) => match pid.trim_end().parse() {
+            Ok(pid) => {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
                 }
-                Err(e) => warn!(log, "could not parse pidfile for {}: {}", name, e),
+                fs::remove_file(pidfile)?;
             }
-        }
+            Err(e) => warn!(log, "could not parse pidfile for {}: {}", name, e),
+        },
         Err(e) => {
             warn!(log, "could not get pidfile for {}: {}", name, e);
         }
     };
-
 
     // get instance uuid
     let uuid = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
@@ -599,7 +536,10 @@ async fn hyperstop(name: &str) -> Result<(), Error> {
 
     // destroy bhyve vm
     let vm_arg = format!("--vm={}", uuid);
-    match Command::new("bhyvectl").args(&["--destroy", vm_arg.as_ref()]).output() {
+    match Command::new("bhyvectl")
+        .args(&["--destroy", vm_arg.as_ref()])
+        .output()
+    {
         Ok(_) => {}
         Err(e) => {
             warn!(log, "delete bhyve vm for {}: {}", name, e);
@@ -611,10 +551,9 @@ async fn hyperstop(name: &str) -> Result<(), Error> {
 }
 
 async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
-
     // read topology
     let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
-    let d: Deployment = from_str(&topo_ron)?; 
+    let d: Deployment = from_str(&topo_ron)?;
 
     let mut node = None;
     for n in &d.nodes {
@@ -624,10 +563,8 @@ async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
     }
 
     let node = match node {
-        None => {
-            return Err(Error::NotFound(name.into()))
-        }
-        Some(node) => node
+        None => return Err(Error::NotFound(name.into())),
+        Some(node) => node,
     };
 
     let port: u32 = fs::read_to_string(format!(".falcon/{}.port", name))?
