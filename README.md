@@ -13,7 +13,10 @@ Currently the nightly toolchain is required.
 
 ## Installing
 
-Install `propolis-server` from my [p9fs branch](https://github.com/rcgoodfellow/propolis/tree/p9fs) 
+Install `propolis-server` from the [falcon
+branch](https://github.com/oxidecomputer/propolis/tree/falcon). CI builds for
+that branch are
+[here](https://github.com/oxidecomputer/propolis/runs/5312397993).
 
 Set up firmware and OS base images.
 ```
