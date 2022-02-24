@@ -11,7 +11,7 @@ anyhow = "1.0"
 zone = "0.1.8"
 regex = "1.5"
 smf = "0.2"
-libnet = { git = "ssh://git@github.com/oxidecomputer/netadm-sys", branch = "main" }
+libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
 fs2 = { git = "https://github.com/pfmooney/fs2-rs", branch = "illumos-target" }
 uuid = { version = "0.8", features = ["serde", "v4"] }
 serde = "1.0"
@@ -21,8 +21,8 @@ slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
 home = "0.5"
-propolis-client = { git = "ssh://git@github.com/rcgoodfellow/propolis", branch = "p9fs" }
-propolis-server = { git = "ssh://git@github.com/rcgoodfellow/propolis", branch = "p9fs" }
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
+propolis-server = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
 toml = "0.5"
 libc = "0.2"
 tokio = { version = "1", features = ["full"] }
