@@ -154,11 +154,11 @@ impl SerialCommander {
     ) -> Result<String, Error> {
         debug!(self.log, "sc: executing command `{}`", command);
 
-        let cmd = format!("{}", command);
+        let cmd = command.to_string();
 
         let v = Vec::from(cmd.as_bytes());
         ws.send(Message::binary(v)).await?;
-        self.drain_detector(ws, &cmd.as_bytes()).await?;
+        self.drain_detector(ws, cmd.as_bytes()).await?;
         ws.send(Message::binary(vec![0x0du8])).await?; //<enter>
         let s = self.drain_detector(ws, EOC_DETECTOR.as_bytes()).await?;
         // remove paste mode terminal characters if present
@@ -226,7 +226,7 @@ impl SerialCommander {
 
         trace!(self.log, "drained: `{}`", &result);
 
-        Ok(format!("{}", &result))
+        Ok(result.to_string())
     }
 
     pub async fn drain(

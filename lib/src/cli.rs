@@ -143,18 +143,17 @@ struct CmdInfo {}
 /// # Examples
 /// ```no_run
 /// use libfalcon::{cli::run, Runner};
-/// fn main() {
-///     let mut r = Runner::new("duo");
 ///
-///     // nodes
-///     let violin = r.node("violin", "helios-1.0", 1, 1024);
-///     let piano = r.node("piano", "helios-1.0", 1, 1024);
+/// let mut r = Runner::new("duo");
 ///
-///     // links
-///     r.link(violin, piano);
+/// // nodes
+/// let violin = r.node("violin", "helios-1.0", 1, 1024);
+/// let piano = r.node("piano", "helios-1.0", 1, 1024);
 ///
-///     run(&mut r);
-/// }
+/// // links
+/// r.link(violin, piano);
+///
+/// run(&mut r);
 /// ```
 pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
     r.persistent = true;
@@ -162,10 +161,9 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
     let opts: Opts = Opts::parse();
     match opts.subcmd {
         SubCommand::Launch(l) => {
-            match l.propolis {
-                Some(path) => r.propolis_binary = path,
-                None => {}
-            };
+            if let Some(path) = l.propolis {
+                r.propolis_binary = path
+            }
             launch(r).await;
             Ok(RunMode::Launch)
         }
@@ -244,18 +242,18 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     println!("{} {}", "name:".dimmed(), r.deployment.name,);
 
     println!("{}", "Nodes".bright_black());
-    write!(
+    writeln!(
         &mut tw,
-        "{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{}\t{}\t{}\t{}",
         "Name".dimmed(),
         "Image".dimmed(),
         "Radix".dimmed(),
         "Mounts".dimmed(),
         "UUID".dimmed(),
     )?;
-    write!(
+    writeln!(
         &mut tw,
-        "{}\t{}\t{}\t{}\t{}\n",
+        "{}\t{}\t{}\t{}\t{}",
         "----".bright_black(),
         "-----".bright_black(),
         "-----".bright_black(),
@@ -264,21 +262,21 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     )?;
     for x in &r.deployment.nodes {
         let mount = {
-            if x.mounts.len() > 0 {
+            if !x.mounts.is_empty() {
                 format!("{} -> {}", x.mounts[0].source, x.mounts[0].destination,)
             } else {
                 "".into()
             }
         };
-        write!(
+        writeln!(
             &mut tw,
-            "{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}",
             x.name, x.image, x.radix, mount, x.id,
         )?;
         if x.mounts.len() > 1 {
             for m in &x.mounts[1..] {
                 let mount = format!("{} -> {}", m.source, m.destination,);
-                write!(&mut tw, "{}\t{}\t{}\t{}\t{}\n", "", "", "", mount, "",)?;
+                writeln!(&mut tw, "\t\t\t{}\t", mount)?;
             }
         }
     }
@@ -322,7 +320,7 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
     }
 
     let node = match node {
-        None => return Err(Error::NotFound(cmd.vm_name.into())),
+        None => return Err(Error::NotFound(cmd.vm_name)),
         Some(node) => node,
     };
 
@@ -382,9 +380,9 @@ async fn console(name: &str) -> Result<(), Error> {
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let log = create_logger();
-    let client = Client::new(addr.clone(), log.new(o!()));
+    let client = Client::new(addr, log.new(o!()));
 
-    serial(&client, addr.clone(), name.into()).await?;
+    serial(&client, addr, name.into()).await?;
 
     Ok(())
 }
@@ -448,7 +446,7 @@ impl RawTermiosGuard {
             }
             curr_termios
         };
-        let guard = RawTermiosGuard(fd, termios.clone());
+        let guard = RawTermiosGuard(fd, termios);
         unsafe {
             let mut raw_termios = termios;
             libc::cfmakeraw(&mut raw_termios);
@@ -476,8 +474,7 @@ fn create_logger() -> Logger {
     let level = Level::Debug;
     let drain = slog::LevelFilter(drain, level).fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let logger = Logger::root(drain, o!());
-    logger
+    Logger::root(drain, o!())
 }
 
 async fn reboot(name: &str) -> Result<(), Error> {
@@ -487,11 +484,11 @@ async fn reboot(name: &str) -> Result<(), Error> {
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let log = create_logger();
-    let client = Client::new(addr.clone(), log.new(o!()));
+    let client = Client::new(addr, log.new(o!()));
 
     // Grab the Instance UUID
     let id = client
-        .instance_get_uuid(&name)
+        .instance_get_uuid(name)
         .await
         .with_context(|| anyhow!("failed to get instance UUID"))?;
 

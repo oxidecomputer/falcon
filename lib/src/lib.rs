@@ -21,9 +21,6 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
 use tokio::time::{sleep, Duration};
 
 pub struct Runner {
@@ -287,7 +284,7 @@ impl Runner {
             .map_err(|e| Error::PathError(format!("{}: {}", src.as_ref(), e)))?;
         let cpath_str = cpath
             .to_str()
-            .ok_or(Error::PathError(format!("bad path: {}", src.as_ref())))?;
+            .ok_or_else(|| Error::PathError(format!("bad path: {}", src.as_ref())))?;
 
         self.deployment.nodes[n.index].mounts.push(Mount {
             source: cpath_str.to_string(),
@@ -331,7 +328,7 @@ impl Runner {
         fs::write(".falcon/topology.ron", out)?;
 
         for n in self.deployment.nodes.iter() {
-            n.preflight(&self)?;
+            n.preflight(self)?;
         }
 
         Ok(())
@@ -340,12 +337,12 @@ impl Runner {
     async fn net_launch(&self) -> Result<(), Error> {
         info!(self.log, "creating links");
         for l in self.deployment.links.iter() {
-            l.create(&self)?;
+            l.create(self)?;
         }
 
         info!(self.log, "creating external links");
         for l in self.deployment.ext_links.iter() {
-            l.create(&self)?;
+            l.create(self)?;
         }
 
         Ok(())
@@ -362,7 +359,7 @@ impl Runner {
                 Some(p) => p,
                 None => return Err(Error::NoPorts),
             };
-            fs.push(n.launch(&self, port as u32));
+            fs.push(n.launch(self, port as u32));
         }
         for x in join_all(fs).await {
             x?;
@@ -374,12 +371,12 @@ impl Runner {
     pub fn net_destroy(&self) -> Result<(), Error> {
         info!(self.log, "destroying links");
         for l in self.deployment.links.iter() {
-            l.destroy(&self)?;
+            l.destroy(self)?;
         }
 
         info!(self.log, "destroying external links");
         for l in self.deployment.ext_links.iter() {
-            l.destroy(&self)?;
+            l.destroy(self)?;
         }
         Ok(())
     }
@@ -389,7 +386,7 @@ impl Runner {
     pub fn destroy(&self) -> Result<(), Error> {
         info!(self.log, "destroying nodes");
         for n in self.deployment.nodes.iter() {
-            n.destroy(&self)?;
+            n.destroy(self)?;
         }
 
         self.net_destroy()?;
@@ -426,7 +423,7 @@ impl Runner {
         };
 
         let port = match fs::read_to_string(format!(".falcon/{}.port", name)) {
-            Ok(p) => u16::from_str_radix(p.as_str(), 10)?,
+            Ok(p) => p.as_str().parse::<u16>()?,
             Err(e) => {
                 return Err(Error::NotFound(format!(
                     "get propolis port for {}: {}",
@@ -444,6 +441,7 @@ impl Runner {
         Ok(sc.exec(&mut ws, cmd.to_string()).await?)
     }
 
+    /*
     /// Run a command asynchronously in the node.
     pub fn spawn(&self, n: NodeRef, cmd: &str) -> Receiver<Result<String, Error>> {
         let (_tx, rx): (
@@ -460,6 +458,7 @@ impl Runner {
 
         rx
     }
+    */
 }
 
 impl Deployment {
@@ -651,7 +650,7 @@ impl Node {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, &r.propolis_binary, port, &id, &self).await?;
+        launch_vm(&r.log, &r.propolis_binary, port, &id, self).await?;
 
         // initial vm configuration
 
@@ -700,14 +699,16 @@ impl Node {
         Ok(())
     }
 
+    /*
     fn node_name(&self, d: &Deployment) -> String {
         format!("{}_{}", d.name, self.name)
     }
+    */
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
         // get propolis pid
         let pid = match fs::read_to_string(format!(".falcon/{}.pid", self.name)) {
-            Ok(pid) => match i32::from_str_radix(pid.as_ref(), 10) {
+            Ok(pid) => match pid.parse::<i32>() {
                 Ok(pid) => pid,
                 Err(e) => {
                     warn!(r.log, "parse propolis pid for {}: {}", self.name, e);
@@ -841,7 +842,7 @@ impl ExtLink {
 
 pub(crate) async fn launch_vm(
     log: &Logger,
-    propolis_binary: &String,
+    propolis_binary: &str,
     port: u32,
     id: &uuid::Uuid,
     node: &Node,
