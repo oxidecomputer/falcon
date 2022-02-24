@@ -21,7 +21,7 @@ use colored::*;
 use tabwriter::TabWriter;
 use ron::de::{from_str};
 
-use clap::{AppSettings, Parser};
+use clap::Parser;
 
 use crate::{error::Error, Runner, Deployment};
 
@@ -32,11 +32,8 @@ pub enum RunMode {
 }
 
 #[derive(Parser)]
-#[clap(
-    version = "0.1",
-    author = "Ryan Goodfellow <ryan.goodfellow@oxide.computer>"
-)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(version = "0.1")]
+#[clap(infer_subcommands = true)]
 struct Opts {
     #[clap(short, long, parse(from_occurrences))]
     verbose: i32,
@@ -71,7 +68,7 @@ enum SubCommand {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdLaunch {
 
     /// The propolis-server binary to use
@@ -81,11 +78,11 @@ struct CmdLaunch {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdDestroy {}
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdSerial {
 
     /// Name of the VM to establish a serial connection to
@@ -94,7 +91,7 @@ struct CmdSerial {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdReboot {
 
     /// Name of the VM to reboot
@@ -103,7 +100,7 @@ struct CmdReboot {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdHyperstop {
 
     /// Name of the vm to stop
@@ -115,7 +112,7 @@ struct CmdHyperstop {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdHyperstart {
 
     /// The propolis-server binary to use
@@ -131,15 +128,15 @@ struct CmdHyperstart {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdNetCreate { }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdNetDestroy { }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdSnapshot { 
 
     /// Name of the VM to snaphost
@@ -150,7 +147,7 @@ struct CmdSnapshot {
 }
 
 #[derive(Parser)]
-#[clap(setting = AppSettings::InferSubcommands)]
+#[clap(infer_subcommands = true)]
 struct CmdInfo {}
 
 /// Entry point for a command line application. Will parse command line
@@ -163,8 +160,8 @@ struct CmdInfo {}
 ///     let mut r = Runner::new("duo");
 ///
 ///     // nodes
-///     let violin = r.zone("violin");
-///     let piano = r.zone("piano");
+///     let violin = r.node("violin", "helios-1.0", 1, 1024);
+///     let piano = r.node("piano", "helios-1.0", 1, 1024);
 ///
 ///     // links
 ///     r.link(violin, piano);

@@ -719,35 +719,35 @@ impl Node {
             id.to_string(),
             r.log.clone(),
         );
-        sc.start().await?;
+        let mut ws = sc.start().await?;
 
         // setup mounts
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
             info!(r.log, "mouting {}", mount.destination);
-            r.do_exec(&self.name, "p9kp load-driver").await?;
+            sc.exec(&mut ws, "p9kp load-driver".into()).await?;
             let cmd = format!(
                 "mkdir -p {dst}; cd {dst}; p9kp pull", dst=mount.destination);
-            r.do_exec(&self.name, &cmd).await?;
-            r.do_exec(&self.name, "cd").await?;
+            sc.exec(&mut ws, cmd).await?;
+            sc.exec(&mut ws, "cd".into()).await?;
         }
 
         // set hostname
         let cmd = format!("hostname {}", self.name);
-        r.do_exec(&self.name, &cmd).await?;
+        sc.exec(&mut ws, cmd).await?;
         let cmd = format!(
             "echo '::1 {name}.local {name}' >> /etc/hosts",
             name=self.name,
         );
-        r.do_exec(&self.name, &cmd).await?;
+        sc.exec(&mut ws, cmd).await?;
         let cmd = format!(
             "echo '127.0.0.1 {name}.local {name}' >> /etc/hosts",
             name=self.name,
         );
-        r.do_exec(&self.name, &cmd).await?;
+        sc.exec(&mut ws, cmd).await?;
 
         // log out and log back in to get updated console
-        let mut ws = sc.connect().await?;
+        //let mut ws = sc.connect().await?;
         sc.logout(&mut ws).await?;
         sc.login(&mut ws).await?;
 

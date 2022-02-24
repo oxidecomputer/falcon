@@ -29,6 +29,8 @@ pub struct SerialCommander {
     log: Logger,
 }
 
+const EOC_DETECTOR: &str = "__FALCON_EXEC_FINISHED__";
+
 impl SerialCommander {
 
     pub fn new(
@@ -73,7 +75,8 @@ impl SerialCommander {
 
     }
 
-    pub async fn start(&mut self) -> Result<(), Error> {
+    pub async fn start(&mut self)
+    -> Result<WebSocketStream<MaybeTlsStream<TcpStream>> , Error> {
 
         debug!(self.log, "sc: starting");
 
@@ -81,7 +84,7 @@ impl SerialCommander {
         self.wait_for_prompt(&mut ws).await?;
         self.login(&mut ws).await?;
 
-        Ok(())
+        Ok(ws)
 
     }
 
@@ -139,6 +142,11 @@ impl SerialCommander {
         ws.send(Message::binary(v)).await?;
         self.drain(ws, 1000).await?;
 
+        let mut v = Vec::from(b"export TERM=xterm".as_slice());
+        v.push(0x0du8); //<enter>
+        ws.send(Message::binary(v)).await?;
+        self.drain(ws, 1000).await?;
+
         let mut v = Vec::from(
             b"PROMPT_COMMAND='echo __FALCON_EXEC_FINISHED__'".as_slice());
         v.push(0x0du8); //<enter>
@@ -164,6 +172,10 @@ impl SerialCommander {
 
     }
 
+    //TODO this could be much more robust than it is. It would be good to have
+    //some sort of terminal state machine that consumes terminal input and does
+    //the right thing rather than looking for potentially problematic characters
+    //in the output ad-hoc.
     pub async fn exec(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
@@ -174,23 +186,37 @@ impl SerialCommander {
 
         let cmd = format!("{}", command);
 
-        let mut v = Vec::from(cmd.as_bytes());
-        v.push(0x0du8); //<enter>
+        let v = Vec::from(cmd.as_bytes());
         ws.send(Message::binary(v)).await?;
-        let s = self.drain_detector(ws).await?;
-        Ok(s)
+        self.drain_detector(ws, &cmd.as_bytes()).await?;
+        ws.send(Message::binary(vec![0x0du8])).await?; //<enter>
+        let s = self.drain_detector(ws, EOC_DETECTOR.as_bytes()).await?;
+        // remove paste mode terminal characters if present
+        let s = s.replace("\u{1b}[?2004l", "");
+        let s = s.replace("\u{1b}[?2004h", "");
+        // remove the end oof command detector
+        let s = s.replace(EOC_DETECTOR, "");
+        let mut s = s.trim();
+        //TODO assumes there will be a newline after the command, which is not
+        //always the case
+        if let Some(i) = s.rfind("\r\n") {
+            s = &s[..i];
+        }
+        //let s = s.replace(|c: char| c.is_control(), "");
+        Ok(s.trim().to_string())
 
     }
 
     pub async fn drain_detector(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        detector: &[u8],
     ) -> Result<String, Error>{
 
         trace!(self.log, "sc: draining stream");
 
         let mut result = "".to_string();
-        let detector = b"__FALCON_EXEC_FINISHED__";
+        //let detector = b"__FALCON_EXEC_FINISHED__";
         let mut i = 0;
 
         loop {
@@ -233,7 +259,7 @@ impl SerialCommander {
 
         trace!(self.log, "drained: `{}`", &result);
 
-        Ok(result)
+        Ok(format!("{}", &result))
 
     }
 
