@@ -19,18 +19,29 @@ ptime -m cargo build
 ptime -m cargo build --release
 
 banner check
-#cargo fmt -- --check
-#cargo clippy
+cargo fmt -- --check
+cargo clippy
 
-banner "setup"
-./get-ovmf.sh
-./setup-base-images.sh
-./get-propolis.sh
+#
+# TODO 
+# tbe following will not work unless we run on a bare metal instance, which is
+# expensive.
+#
 
+# check to see if we have virsatualization extensions
+#pfexec isainfo -v
+#pfexec isainfo -x
 
-export RUST_BACKTRACE=1
-export RUST_LOG=trace
+#isainfo -x | egrep "(svm|vmx)"
 
-banner "test"
-pfexec cargo test -- --test-threads 1
-pfexec cargo test -- --test-threads 1 --ignored
+#banner "setup"
+#./get-ovmf.sh
+#./setup-base-images.sh
+#./get-propolis.sh
+
+#export RUST_BACKTRACE=1
+#export RUST_LOG=trace
+
+#banner "test"
+#pfexec cargo test -- --test-threads 1
+#pfexec cargo test -- --test-threads 1 --ignored
