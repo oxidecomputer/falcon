@@ -440,7 +440,6 @@ impl Runner {
         // if we are here, we are already logged in on the serial port
         Ok(sc.exec(&mut ws, cmd.to_string()).await?)
     }
-
 }
 
 impl Deployment {
