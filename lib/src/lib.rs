@@ -662,6 +662,11 @@ impl Node {
         let cmd = format!("hostname {}", self.name);
         sc.exec(&mut ws, cmd).await?;
         let cmd = format!(
+            "echo '{name}' > /etc/nodename",
+            name = self.name,
+        );
+        sc.exec(&mut ws, cmd).await?;
+        let cmd = format!(
             "echo '::1 {name}.local {name}' >> /etc/hosts",
             name = self.name,
         );
