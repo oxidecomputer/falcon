@@ -5,7 +5,7 @@ set -e
 # Images follow the naming scheme
 #   <name>-<os_version>-<image_version>
 
-images="debian-11.0_0 helios-1.0_0"
+images="debian-11.0_0 helios-1.1_0"
 mkdir -p .img
 pushd .img
 

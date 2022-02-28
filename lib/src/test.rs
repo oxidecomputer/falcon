@@ -24,7 +24,7 @@ mod test {
     #[tokio::test]
     async fn solo_launch() -> Result<()> {
         let mut d = crate::Runner::new("solo");
-        let z = d.node("violin", "helios-1.0", 1, 1024);
+        let z = d.node("violin", "helios-1.1", 1, 1024);
 
         // mount a file into the node
         let some_data = "some data";
@@ -60,8 +60,8 @@ mod test {
         ];
 
         let mut d = crate::Runner::new("duo");
-        let violin = d.node("violin", "helios-1.0", 1, 1024);
-        let piano = d.node("piano", "helios-1.0", 1, 1024);
+        let violin = d.node("violin", "helios-1.1", 1, 1024);
+        let piano = d.node("piano", "helios-1.1", 1, 1024);
         d.link(violin, piano);
 
         d.launch().await?;

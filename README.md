@@ -44,8 +44,8 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let violin = d.node("violin", "helios-1.0", 2, gb(2));
-    let piano = d.node("piano", "helios-1.0", 2, gb(2));
+    let violin = d.node("violin", "helios-1.1", 2, gb(2));
+    let piano = d.node("piano", "helios-1.1", 2, gb(2));
 
     // links
     d.link(violin, piano);
