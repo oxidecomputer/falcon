@@ -16,7 +16,7 @@ Currently the nightly toolchain is required.
 Install `propolis-server` from the [falcon
 branch](https://github.com/oxidecomputer/propolis/tree/falcon). CI builds for
 that branch are
-[here](https://github.com/oxidecomputer/propolis/runs/5312397993). The
+[here](https://github.com/oxidecomputer/propolis/runs/5371191090). The
 `get-propolis.sh` script can also be used to automatically install
 propolis-server form the current CI build.
 
