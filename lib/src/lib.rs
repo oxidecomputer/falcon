@@ -127,8 +127,8 @@ pub enum EndpointKind {
 
     /// Use a Sidecar multiplexing device. If you are unsure, this is not what
     /// you want. The usize parameter indicates radix of the connected Sidecar
-    /// device.
-    Sidemux(usize),
+    /// device. May optionally specify macs for sidemux ports.
+    Sidemux(usize, Option<Vec<String>>),
 }
 
 /// Endpoints are owned by a Link and reference nodes through a references.
@@ -233,7 +233,13 @@ impl Runner {
     ///
     /// The sidecar node will get a regular bhyve/viona endpoint. The controller
     /// node will get a sidemux device with the provided radix.
-    pub fn sidecar_link(&mut self, sidecar: NodeRef, controller: NodeRef, radix: usize) -> LinkRef {
+    pub fn sidecar_link(
+        &mut self,
+        sidecar: NodeRef,
+        controller: NodeRef,
+        radix: usize,
+        macs: Option<Vec<String>>,
+    ) -> LinkRef {
         let r = LinkRef {
             _index: self.deployment.links.len(),
         };
@@ -247,7 +253,7 @@ impl Runner {
                 Endpoint {
                     node: controller,
                     index: self.deployment.nodes[controller.index].radix,
-                    kind: EndpointKind::Sidemux(radix),
+                    kind: EndpointKind::Sidemux(radix, macs),
                 },
             ],
         };
@@ -570,7 +576,7 @@ impl Node {
 
         for e in &endpoints {
             if d.nodes[e.node.index].name == self.name {
-                match e.kind {
+                match &e.kind {
                     EndpointKind::Viona => {
                         //links.push(d.vnic_link_name(e));
                         let mut opts = BTreeMap::new();
@@ -589,9 +595,12 @@ impl Node {
                         viona_index += 1;
                         pci_index += 1;
                     }
-                    EndpointKind::Sidemux(radix) => {
+                    EndpointKind::Sidemux(radix, macs) => {
                         let mut opts = BTreeMap::new();
-                        opts.insert("radix".to_string(), toml::Value::Integer(radix.try_into()?));
+                        opts.insert(
+                            "radix".to_string(),
+                            toml::Value::Integer((*radix).try_into()?),
+                        );
                         opts.insert(
                             "link-name".to_string(),
                             toml::Value::String(d.vnic_link_name(e)),
@@ -600,6 +609,19 @@ impl Node {
                             "pci-path".to_string(),
                             toml::Value::String(format!("0.{}.0", pci_index)),
                         );
+                        match macs {
+                            Some(macs) => {
+                                opts.insert(
+                                    "macs".to_string(),
+                                    toml::Value::Array(
+                                        macs.iter()
+                                            .map(|x| toml::Value::String(x.clone()))
+                                            .collect()
+                                    ),
+                                );
+                            }
+                            None => {}
+                        }
                         devices.insert(
                             format!("sidemux{}", sidemux_index),
                             propolis_server::config::Device {
