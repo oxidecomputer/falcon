@@ -616,7 +616,7 @@ impl Node {
                                     toml::Value::Array(
                                         macs.iter()
                                             .map(|x| toml::Value::String(x.clone()))
-                                            .collect()
+                                            .collect(),
                                     ),
                                 );
                             }
