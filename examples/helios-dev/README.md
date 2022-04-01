@@ -1,6 +1,12 @@
 # Helios Dev Machine
 
-This is a minimal falcon setup for creating a Helios development machine.
+This is a minimal falcon setup for creating a Helios development machine. It's a
+one machine topology. The basic workflow with falcon is
+
+1. Compile the topology program.
+2. Launch the topology from the compiled topology program.
+3. Get serial console access to nodes in the topology through the topology
+   program.
 
 # If you've not installed
 
@@ -31,7 +37,7 @@ resize # match serial console to your terminal size
 
 when you're finished
 
-```
+```shell
 <ctl>-<q> # to escape from serial console session
 ```
 
