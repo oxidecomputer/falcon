@@ -4,5 +4,6 @@ members = [
     "lib",
     "examples/solo",
     "examples/duo",
-    "examples/duo-unit"
+    "examples/duo-unit",
+    "examples/helios-dev"
 ]
