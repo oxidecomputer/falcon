@@ -14,8 +14,8 @@ From the top dir in the falcon repo.
 
 ## tl;dr
 
-** >>> Change `igb0` in src/main.rs to whatever your internet-facing host interface
-is. <<< **
+**>>> Change `igb0` in src/main.rs to whatever your internet-facing host interface
+is. <<<**
 
 ```shell
 cargo build
