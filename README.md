@@ -22,16 +22,9 @@ propolis-server form the current CI build.
 
 Set up firmware and OS base images.
 ```
+./get-propolis.sh
 ./get-ovmf.sh
 ./setup-base-images.sh
-```
-
-Install package dependencies
-
-```shell
-pkg install \
-    pkg:/system/zones/brand/ipkg \
-    pkg:/system/zones/brand/sparse
 ```
 
 ## QuickStart
