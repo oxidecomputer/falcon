@@ -8,6 +8,8 @@ one machine topology. The basic workflow with falcon is
 3. Get serial console access to nodes in the topology through the topology
    program.
 
+Falcon is only known to work on helios. It might work on omnios ymmv.
+
 # If you've not installed
 
 From the top dir in the falcon repo.
