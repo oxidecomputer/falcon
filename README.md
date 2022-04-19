@@ -29,6 +29,13 @@ Set up firmware and OS base images.
 
 ## QuickStart
 
+To get a ready to go Falcon project use the
+[falcon-template](https://github.com/oxidecomputer/falcon-template).
+
+```shell
+cargo generate --git git@github.com:oxidecomputer/falcon-template --name duo
+```
+
 ```Rust
 use libfalcon::{cli::run, error::Error, Runner, unit::gb};
 
