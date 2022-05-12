@@ -1,8 +1,7 @@
-use libfalcon::{cli::run, error::Error, Runner, unit::gb};
+use libfalcon::{cli::run, error::Error, unit::gb, Runner};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-
     let mut d = Runner::new("hdev");
 
     // Modify cores or memory if you'd like
