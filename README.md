@@ -32,6 +32,12 @@ Set up firmware and OS base images.
 To get a ready to go Falcon project use the
 [falcon-template](https://github.com/oxidecomputer/falcon-template).
 
+**NOTE:** The falcon-template repository is currently private. So to use the
+cargo-generate command below, you'll need to have ssh keys set up to access the
+repo. If you do not happen to use `~/.ssh/id_rsa` as the key to access private
+repos in the Oxide GitHub Organization, you'll need to use the `--identity` flag
+with cargo generate to point at the proper key.
+
 ```shell
 cargo generate --git git@github.com:oxidecomputer/falcon-template --name duo
 ```
