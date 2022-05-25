@@ -259,7 +259,8 @@ impl Runner {
         };
         self.deployment.links.push(l);
         self.deployment.nodes[sidecar.index].radix += 1;
-        self.deployment.nodes[controller.index].radix += radix;
+        // +1 on the radix is for the pci port
+        self.deployment.nodes[controller.index].radix += radix + 1;
         r
     }
 
@@ -580,7 +581,8 @@ impl Node {
                     EndpointKind::Viona => {
                         //links.push(d.vnic_link_name(e));
                         let mut opts = BTreeMap::new();
-                        opts.insert("vnic".to_string(), toml::Value::String(d.vnic_link_name(e)));
+                        opts.insert("vnic".to_string(),
+                            toml::Value::String(d.vnic_link_name(e)));
                         opts.insert(
                             "pci-path".to_string(),
                             toml::Value::String(format!("0.{}.0", pci_index)),
@@ -630,7 +632,8 @@ impl Node {
                             },
                         );
                         sidemux_index += 1;
-                        pci_index += radix;
+                        // +1 on the radix is for the pci port
+                        pci_index += radix + 1;
                     }
                 }
             }
