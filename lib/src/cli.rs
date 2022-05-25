@@ -388,7 +388,11 @@ async fn console(name: &str) -> Result<(), Error> {
 }
 
 // TODO copy pasta from propolis/cli/src/main.rs
-async fn serial(client: &Client, addr: SocketAddr, name: String) -> anyhow::Result<()> {
+async fn serial(
+    client: &Client,
+    addr: SocketAddr,
+    name: String,
+) -> anyhow::Result<()> {
     // Grab the Instance UUID
     let id = client
         .instance_get_uuid(&name)
@@ -400,8 +404,8 @@ async fn serial(client: &Client, addr: SocketAddr, name: String) -> anyhow::Resu
         .await
         .with_context(|| anyhow!("failed to create serial websocket stream"))?;
 
-    let _raw_guard =
-        RawTermiosGuard::stdio_guard().with_context(|| anyhow!("failed to set raw mode"))?;
+    let _raw_guard = RawTermiosGuard::stdio_guard()
+        .with_context(|| anyhow!("failed to set raw mode"))?;
 
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
