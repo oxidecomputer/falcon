@@ -13,7 +13,7 @@ regex = "1.5"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
 fs2 = { git = "https://github.com/pfmooney/fs2-rs", branch = "illumos-target" }
-uuid = { version = "0.8", features = ["serde", "v4"] }
+uuid = { version = "1.0.0", features = [ "serde", "v4" ] }
 serde = "1.0"
 ron = "0.7"
 slog = "2.7"
@@ -21,8 +21,10 @@ slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
 home = "0.5"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
-propolis-server = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
+#propolis-client = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
+#propolis-server = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
+propolis-client = { path = "/home/ry/src/propolis/client" }
+propolis-server = { path = "/home/ry/src/propolis/server" }
 toml = "0.5"
 libc = "0.2"
 tokio = { version = "1", features = ["full"] }

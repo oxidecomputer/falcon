@@ -654,15 +654,34 @@ impl Node {
             }
         }
 
+        let cs = propolis_server::config::Chipset{
+            options: BTreeMap::new(),
+        };
+
         // write propolis instance config to .falcon/<node-name>.toml
         let propolis_config = propolis_server::config::Config::new(
             PathBuf::from("/var/ovmf/OVMF_CODE.fd"), //TODO needs to come from somewhere
+            cs,
             devices,
             block_devs,
+            Vec::new(),
         );
 
+        println!("{:#?}", propolis_config);
+
+        /*
+        let cs = propolis_server::config::Chipset{
+            options: BTreeMap::new(),
+        };
+        println!("ouch1");
+        let config_toml = toml::to_string(&cs)?;
+        println!("bang1");
+        */
+
+        println!("ouch");
         let config_toml = toml::to_string(&propolis_config)?;
         fs::write(format!(".falcon/{}.toml", self.name), config_toml)?;
+        println!("bang");
 
         Ok(())
     }
@@ -922,6 +941,7 @@ pub(crate) async fn launch_vm(
         nics: Vec::new(),
         disks: Vec::new(),
         migrate: None,
+        cloud_init_bytes: None,
     };
 
     // we just launched the instance, so wait for it to become ready
@@ -945,7 +965,6 @@ pub(crate) async fn launch_vm(
     // run vm instance
     client
         .instance_state_put(
-            *id,
             propolis_client::api::InstanceStateRequested::Run,
         )
         .await?;

@@ -394,12 +394,15 @@ async fn serial(
     name: String,
 ) -> anyhow::Result<()> {
     // Grab the Instance UUID
+    
+    /*
     let id = client
         .instance_get_uuid(&name)
         .await
         .with_context(|| anyhow!("failed to get instance UUID"))?;
+    */
 
-    let path = format!("ws://{}/instances/{}/serial", addr, id);
+    let path = format!("ws://{}/serial", addr);
     let (mut ws, _) = tokio_tungstenite::connect_async(path)
         .await
         .with_context(|| anyhow!("failed to create serial websocket stream"))?;
@@ -491,14 +494,16 @@ async fn reboot(name: &str) -> Result<(), Error> {
     let client = Client::new(addr, log.new(o!()));
 
     // Grab the Instance UUID
+    /*
     let id = client
         .instance_get_uuid(name)
         .await
         .with_context(|| anyhow!("failed to get instance UUID"))?;
+    */
 
     // reboot
     client
-        .instance_state_put(id, InstanceStateRequested::Reboot)
+        .instance_state_put(InstanceStateRequested::Reboot)
         .await
         .with_context(|| anyhow!("failed to reboot machine"))?;
 
