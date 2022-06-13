@@ -373,7 +373,11 @@ impl Runner {
                 Some(p) => p,
                 None => return Err(Error::NoPorts),
             };
-            fs.push(n.launch(self, port as u32));
+            let vnc_port = match portpicker::pick_unused_port() {
+                Some(p) => p,
+                None => return Err(Error::NoPorts),
+            };
+            fs.push(n.launch(self, port as u32, vnc_port as u32));
         }
         for x in join_all(fs).await {
             x?;
@@ -673,11 +677,16 @@ impl Node {
         Ok(())
     }
 
-    async fn launch(&self, r: &Runner, port: u32) -> Result<(), Error> {
+    async fn launch(
+        &self,
+        r: &Runner,
+        port: u32,
+        vnc_port: u32,
+    ) -> Result<(), Error> {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, &r.propolis_binary, port, &id, self).await?;
+        launch_vm(&r.log, &r.propolis_binary, port, vnc_port, &id, self).await?;
 
         // initial vm configuration
 
@@ -877,19 +886,22 @@ pub(crate) async fn launch_vm(
     log: &Logger,
     propolis_binary: &str,
     port: u32,
+    vnc_port: u32,
     id: &uuid::Uuid,
     node: &Node,
 ) -> Result<(), Error> {
     // launch propolis-server
 
     fs::write(format!(".falcon/{}.port", node.name), port.to_string())?;
+    fs::write(format!(".falcon/{}.vnc_port", node.name), vnc_port.to_string())?;
 
     let stdout = fs::File::create(format!(".falcon/{}.out", node.name))?;
     let stderr = fs::File::create(format!(".falcon/{}.err", node.name))?;
     let config = format!(".falcon/{}.toml", node.name);
     let sockaddr = format!("[::]:{}", port);
+    let vnc_sockaddr = format!("[::]:{}", vnc_port);
     let mut cmd = Command::new(propolis_binary);
-    cmd.args(&["run", config.as_ref(), sockaddr.as_ref()])
+    cmd.args(&["run", config.as_ref(), sockaddr.as_ref(), vnc_sockaddr.as_ref()])
         .stdout(stdout)
         .stderr(stderr);
     let child = cmd.spawn()?;
