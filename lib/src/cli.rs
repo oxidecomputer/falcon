@@ -560,12 +560,17 @@ async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
     let port: u32 = fs::read_to_string(format!(".falcon/{}.port", name))?
         .trim_end()
         .parse()?;
+
+    let vnc_port: u32 = fs::read_to_string(format!(".falcon/{}.vnc_port", name))?
+        .trim_end()
+        .parse()?;
+
     let id: uuid::Uuid = fs::read_to_string(format!(".falcon/{}.uuid", name))?
         .trim_end()
         .parse()?;
     let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, port, &id, node).await?;
+    crate::launch_vm(&log, &propolis_binary, port, vnc_port, &id, node).await?;
 
     Ok(())
 }
