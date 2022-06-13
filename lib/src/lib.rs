@@ -654,7 +654,7 @@ impl Node {
             }
         }
 
-        let cs = propolis_server::config::Chipset{
+        let cs = propolis_server::config::Chipset {
             options: BTreeMap::new(),
         };
 
@@ -667,21 +667,8 @@ impl Node {
             Vec::new(),
         );
 
-        println!("{:#?}", propolis_config);
-
-        /*
-        let cs = propolis_server::config::Chipset{
-            options: BTreeMap::new(),
-        };
-        println!("ouch1");
-        let config_toml = toml::to_string(&cs)?;
-        println!("bang1");
-        */
-
-        println!("ouch");
         let config_toml = toml::to_string(&propolis_config)?;
         fs::write(format!(".falcon/{}.toml", self.name), config_toml)?;
-        println!("bang");
 
         Ok(())
     }
@@ -947,6 +934,7 @@ pub(crate) async fn launch_vm(
     // we just launched the instance, so wait for it to become ready
     let mut success = false;
     for _ in 0..30 {
+        println!("call instance ensure");
         match client.instance_ensure(&req).await {
             Ok(_) => {
                 success = true;
@@ -959,14 +947,14 @@ pub(crate) async fn launch_vm(
         }
     }
     if !success {
+        println!("call instance ensure2");
         client.instance_ensure(&req).await?;
     }
 
+    println!("call instance run");
     // run vm instance
     client
-        .instance_state_put(
-            propolis_client::api::InstanceStateRequested::Run,
-        )
+        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
         .await?;
 
     Ok(())

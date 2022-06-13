@@ -379,30 +379,14 @@ async fn console(name: &str) -> Result<(), Error> {
         .parse()?;
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
-    let log = create_logger();
-    let client = Client::new(addr, log.new(o!()));
-
-    serial(&client, addr, name.into()).await?;
+    serial(addr).await?;
 
     Ok(())
 }
 
 // TODO copy pasta from propolis/cli/src/main.rs
-async fn serial(
-    client: &Client,
-    addr: SocketAddr,
-    name: String,
-) -> anyhow::Result<()> {
-    // Grab the Instance UUID
-    
-    /*
-    let id = client
-        .instance_get_uuid(&name)
-        .await
-        .with_context(|| anyhow!("failed to get instance UUID"))?;
-    */
-
-    let path = format!("ws://{}/serial", addr);
+async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
+    let path = format!("ws://{}/instance/serial", addr);
     let (mut ws, _) = tokio_tungstenite::connect_async(path)
         .await
         .with_context(|| anyhow!("failed to create serial websocket stream"))?;

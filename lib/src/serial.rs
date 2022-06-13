@@ -46,8 +46,7 @@ impl SerialCommander {
         &mut self,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         self.state = State::Connecting;
-        let path =
-            format!("ws://{}/instances/{}/serial", self.addr, self.instance);
+        let path = format!("ws://{}/instance/serial", self.addr);
 
         debug!(self.log, "sc: connecting to {}", path);
 
