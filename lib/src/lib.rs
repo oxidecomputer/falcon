@@ -183,7 +183,13 @@ impl Runner {
 
     /// Create a new node within this deployment with the given name. Names must
     /// conform to `[A-Za-z]?[A-Za-z0-9_]*`
-    pub fn node(&mut self, name: &str, image: &str, cores: u8, memory: u64) -> NodeRef {
+    pub fn node(
+        &mut self,
+        name: &str,
+        image: &str,
+        cores: u8,
+        memory: u64,
+    ) -> NodeRef {
         namecheck!(name, "node");
 
         let id = uuid::Uuid::new_v4();
@@ -259,7 +265,8 @@ impl Runner {
         };
         self.deployment.links.push(l);
         self.deployment.nodes[sidecar.index].radix += 1;
-        self.deployment.nodes[controller.index].radix += radix;
+        // +1 on the radix is for the pci port
+        self.deployment.nodes[controller.index].radix += radix + 1;
         r
     }
 
@@ -286,11 +293,12 @@ impl Runner {
         n: NodeRef,
     ) -> Result<(), Error> {
         let pb = PathBuf::from(src.as_ref());
-        let cpath = fs::canonicalize(&pb)
-            .map_err(|e| Error::PathError(format!("{}: {}", src.as_ref(), e)))?;
-        let cpath_str = cpath
-            .to_str()
-            .ok_or_else(|| Error::PathError(format!("bad path: {}", src.as_ref())))?;
+        let cpath = fs::canonicalize(&pb).map_err(|e| {
+            Error::PathError(format!("{}: {}", src.as_ref(), e))
+        })?;
+        let cpath_str = cpath.to_str().ok_or_else(|| {
+            Error::PathError(format!("bad path: {}", src.as_ref()))
+        })?;
 
         self.deployment.nodes[n.index].mounts.push(Mount {
             source: cpath_str.to_string(),
@@ -438,7 +446,10 @@ impl Runner {
             }
         };
 
-        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), port);
+        let addr = SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+            port,
+        );
 
         let mut sc = serial::SerialCommander::new(addr, id, self.log.clone());
         let mut ws = sc.connect().await?;
@@ -494,7 +505,8 @@ impl Node {
 
         //TODO incorporate version into img
         let source = format!("rpool/falcon/img/{}@base", self.image);
-        let dest = format!("rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
+        let dest =
+            format!("rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
 
         let out = Command::new("zfs")
             .args(&["clone", "-p", source.as_ref(), dest.as_ref()])
@@ -580,7 +592,10 @@ impl Node {
                     EndpointKind::Viona => {
                         //links.push(d.vnic_link_name(e));
                         let mut opts = BTreeMap::new();
-                        opts.insert("vnic".to_string(), toml::Value::String(d.vnic_link_name(e)));
+                        opts.insert(
+                            "vnic".to_string(),
+                            toml::Value::String(d.vnic_link_name(e)),
+                        );
                         opts.insert(
                             "pci-path".to_string(),
                             toml::Value::String(format!("0.{}.0", pci_index)),
@@ -615,7 +630,9 @@ impl Node {
                                     "macs".to_string(),
                                     toml::Value::Array(
                                         macs.iter()
-                                            .map(|x| toml::Value::String(x.clone()))
+                                            .map(|x| {
+                                                toml::Value::String(x.clone())
+                                            })
                                             .collect(),
                                     ),
                                 );
@@ -630,17 +647,24 @@ impl Node {
                             },
                         );
                         sidemux_index += 1;
-                        pci_index += radix;
+                        // +1 on the radix is for the pci port
+                        pci_index += radix + 1;
                     }
                 }
             }
         }
 
+        let cs = propolis_server::config::Chipset {
+            options: BTreeMap::new(),
+        };
+
         // write propolis instance config to .falcon/<node-name>.toml
         let propolis_config = propolis_server::config::Config::new(
             PathBuf::from("/var/ovmf/OVMF_CODE.fd"), //TODO needs to come from somewhere
+            cs,
             devices,
             block_devs,
+            Vec::new(),
         );
 
         let config_toml = toml::to_string(&propolis_config)?;
@@ -706,7 +730,8 @@ impl Node {
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
         // get propolis pid
-        let pid = match fs::read_to_string(format!(".falcon/{}.pid", self.name)) {
+        let pid = match fs::read_to_string(format!(".falcon/{}.pid", self.name))
+        {
             Ok(pid) => match pid.parse::<i32>() {
                 Ok(pid) => pid,
                 Err(e) => {
@@ -726,13 +751,14 @@ impl Node {
         }
 
         // get instance uuid
-        let uuid = match fs::read_to_string(format!(".falcon/{}.uuid", self.name)) {
-            Ok(u) => u,
-            Err(e) => {
-                warn!(r.log, "get propolis uuid for {}: {}", self.name, e);
-                return Ok(());
-            }
-        };
+        let uuid =
+            match fs::read_to_string(format!(".falcon/{}.uuid", self.name)) {
+                Ok(u) => u,
+                Err(e) => {
+                    warn!(r.log, "get propolis uuid for {}: {}", self.name, e);
+                    return Ok(());
+                }
+            };
 
         // destroy bhyve vm
         let vm_arg = format!("--vm={}", uuid);
@@ -773,7 +799,11 @@ impl Link {
             libnet::create_simnet_link(&slink, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating vnic link '{}'", &vlink);
-            libnet::create_vnic_link(&vlink, &slink_h, libnet::LinkFlags::Active)?;
+            libnet::create_vnic_link(
+                &vlink,
+                &slink_h,
+                libnet::LinkFlags::Active,
+            )?;
 
             debug!(r.log, "link pair created");
         }
@@ -819,7 +849,11 @@ impl ExtLink {
 
         // create vnic
         info!(r.log, "creating external link {}", &vnic_name);
-        libnet::create_vnic_link(&vnic_name, &host_ifx, libnet::LinkFlags::Active)?;
+        libnet::create_vnic_link(
+            &vnic_name,
+            &host_ifx,
+            libnet::LinkFlags::Active,
+        )?;
 
         debug!(
             r.log,
@@ -873,8 +907,10 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client =
-        propolis_client::Client::new(SocketAddr::from_str(sockaddr.as_ref())?, log.clone());
+    let client = propolis_client::Client::new(
+        SocketAddr::from_str(sockaddr.as_ref())?,
+        log.clone(),
+    );
 
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
@@ -892,11 +928,13 @@ pub(crate) async fn launch_vm(
         nics: Vec::new(),
         disks: Vec::new(),
         migrate: None,
+        cloud_init_bytes: None,
     };
 
     // we just launched the instance, so wait for it to become ready
     let mut success = false;
     for _ in 0..30 {
+        println!("call instance ensure");
         match client.instance_ensure(&req).await {
             Ok(_) => {
                 success = true;
@@ -909,12 +947,14 @@ pub(crate) async fn launch_vm(
         }
     }
     if !success {
+        println!("call instance ensure2");
         client.instance_ensure(&req).await?;
     }
 
+    println!("call instance run");
     // run vm instance
     client
-        .instance_state_put(*id, propolis_client::api::InstanceStateRequested::Run)
+        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
         .await?;
 
     Ok(())

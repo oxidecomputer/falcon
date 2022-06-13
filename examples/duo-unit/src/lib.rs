@@ -29,7 +29,8 @@ mod tests {
         // wait for piano address to become ready
         let mut retries = 0;
         loop {
-            let state = d.exec(piano, "ipadm show-addr -po state vioif0/v6").await?;
+            let state =
+                d.exec(piano, "ipadm show-addr -po state vioif0/v6").await?;
             if state == "ok" {
                 break;
             }
@@ -41,7 +42,8 @@ mod tests {
         }
 
         // do a ping
-        let ping_cmd = format!("ping {} 1", piano_addr.strip_suffix("/10").unwrap());
+        let ping_cmd =
+            format!("ping {} 1", piano_addr.strip_suffix("/10").unwrap());
         d.exec(violin, ping_cmd.as_str()).await?;
 
         Ok(())

@@ -7,7 +7,9 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
+};
 
 pub enum State {
     Empty,
@@ -27,7 +29,11 @@ pub struct SerialCommander {
 const EOC_DETECTOR: &str = "__FALCON_EXEC_FINISHED__";
 
 impl SerialCommander {
-    pub fn new(addr: SocketAddr, instance: String, log: Logger) -> SerialCommander {
+    pub fn new(
+        addr: SocketAddr,
+        instance: String,
+        log: Logger,
+    ) -> SerialCommander {
         SerialCommander {
             addr,
             instance,
@@ -36,9 +42,11 @@ impl SerialCommander {
         }
     }
 
-    pub async fn connect(&mut self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+    pub async fn connect(
+        &mut self,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         self.state = State::Connecting;
-        let path = format!("ws://{}/instances/{}/serial", self.addr, self.instance);
+        let path = format!("ws://{}/instance/serial", self.addr);
 
         debug!(self.log, "sc: connecting to {}", path);
 
@@ -57,7 +65,9 @@ impl SerialCommander {
         Ok(ws)
     }
 
-    pub async fn start(&mut self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+    pub async fn start(
+        &mut self,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         debug!(self.log, "sc: starting");
 
         let mut ws = self.connect().await?;
@@ -122,7 +132,9 @@ impl SerialCommander {
         ws.send(Message::binary(v)).await?;
         self.drain(ws, 1000).await?;
 
-        let mut v = Vec::from(b"PROMPT_COMMAND='echo __FALCON_EXEC_FINISHED__'".as_slice());
+        let mut v = Vec::from(
+            b"PROMPT_COMMAND='echo __FALCON_EXEC_FINISHED__'".as_slice(),
+        );
         v.push(0x0du8); //<enter>
         ws.send(Message::binary(v)).await?;
         self.drain(ws, 1000).await?;
@@ -194,7 +206,9 @@ impl SerialCommander {
                         if *x == detector[i] {
                             i += 1;
                             if i == detector.len() - 1 {
-                                let s = String::from_utf8_lossy(data.as_slice()).to_string();
+                                let s =
+                                    String::from_utf8_lossy(data.as_slice())
+                                        .to_string();
                                 result += &s;
                                 debug!(self.log, "sc: detector detected");
                                 trace!(self.log, "drained: `{}`", &result);
@@ -205,7 +219,8 @@ impl SerialCommander {
                             i = 0;
                         }
                     }
-                    let s = String::from_utf8_lossy(data.as_slice()).to_string();
+                    let s =
+                        String::from_utf8_lossy(data.as_slice()).to_string();
                     result += &s;
                     trace!(self.log, "partial result `{}`", &result);
                 }
@@ -242,7 +257,8 @@ impl SerialCommander {
             match timeout(Duration::from_millis(wait), ws.next()).await {
                 Ok(msg) => match msg {
                     Some(Ok(Message::Binary(data))) => {
-                        let s = String::from_utf8_lossy(data.as_slice()).to_string();
+                        let s = String::from_utf8_lossy(data.as_slice())
+                            .to_string();
                         result += &s;
                     }
                     Some(Ok(Message::Close(..))) => {
