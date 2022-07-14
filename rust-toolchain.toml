@@ -1,4 +1,0 @@
-[toolchain]
-# for passing environment for libzfs through .cargo/config.toml
-# worth it?
-channel = "nightly-2021-11-24" 

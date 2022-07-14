@@ -386,6 +386,7 @@ async fn console(name: &str) -> Result<(), Error> {
 
 // TODO copy pasta from propolis/cli/src/main.rs
 async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
+    /*
     let path = format!("ws://{}/instance/serial", addr);
     let (mut ws, _) = tokio_tungstenite::connect_async(path)
         .await
@@ -420,7 +421,109 @@ async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
     }
 
     Ok(())
+    */
+    let path = format!("ws://{}/instance/serial", addr);
+    let (mut ws, _) = tokio_tungstenite::connect_async(path)
+        .await
+        .with_context(|| anyhow!("failed to create serial websocket stream"))?;
+
+    let _raw_guard = RawTermiosGuard::stdio_guard()
+        .with_context(|| anyhow!("failed to set raw mode"))?;
+
+    let mut stdout = tokio::io::stdout();
+
+    // https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html#method.read_exact
+    // is not cancel safe! Meaning reads from tokio::io::stdin are not cancel
+    // safe. Spawn a separate task to read and put bytes onto this channel.
+    let (stdintx, stdinrx) = tokio::sync::mpsc::channel(16);
+    let (wstx, mut wsrx) = tokio::sync::mpsc::channel(16);
+
+    tokio::spawn(async move {
+        let mut stdin = tokio::io::stdin();
+        let mut inbuf = [0u8; 1024];
+
+        loop {
+            let n = match stdin.read(&mut inbuf).await {
+                Err(_) | Ok(0) => break,
+                Ok(n) => n,
+            };
+
+            stdintx.send(inbuf[0..n].to_vec()).await.unwrap();
+        }
+    });
+
+    tokio::spawn(async move { stdin_to_websockets_task(stdinrx, wstx).await });
+
+    loop {
+        tokio::select! {
+            c = wsrx.recv() => {
+                match c {
+                    None => {
+                        // channel is closed
+                        break;
+                    }
+                    Some(c) => {
+                        ws.send(Message::Binary(c)).await?;
+                    },
+                }
+            }
+            msg = ws.next() => {
+                match msg {
+                    Some(Ok(Message::Binary(input))) => {
+                        stdout.write_all(&input).await?;
+                        stdout.flush().await?;
+                    }
+                    Some(Ok(Message::Close(..))) | None => break,
+                    _ => continue,
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
+
+// TODO copy pasta from propolis/cli/src/main.rs
+async fn stdin_to_websockets_task(
+    mut stdinrx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    wstx: tokio::sync::mpsc::Sender<Vec<u8>>,
+) {
+
+    loop {
+        let inbuf = if let Some(inbuf) = stdinrx.recv().await {
+            inbuf
+        } else {
+            continue;
+        };
+
+        // Put bytes from inbuf to outbuf, 
+        let mut outbuf = Vec::with_capacity(inbuf.len());
+
+        let mut exit = false;
+        for c in inbuf {
+            match c {
+                b'\x11' => {
+                    // Exit onCtrl-Q
+                    exit = true;
+                    break;
+                }
+                _ => {
+                    outbuf.push(c);
+                }
+            }
+        }
+
+        // Send what we have, even if there's a Ctrl-C at the end.
+        if !outbuf.is_empty() {
+            wstx.send(outbuf).await.unwrap();
+        }
+
+        if exit {
+            break;
+        }
+    }
+}
+
 
 /// Guard object that will set the terminal to raw mode and restore it
 /// to its previous state when it's dropped
