@@ -488,7 +488,6 @@ async fn stdin_to_websockets_task(
     mut stdinrx: tokio::sync::mpsc::Receiver<Vec<u8>>,
     wstx: tokio::sync::mpsc::Sender<Vec<u8>>,
 ) {
-
     loop {
         let inbuf = if let Some(inbuf) = stdinrx.recv().await {
             inbuf
@@ -496,7 +495,7 @@ async fn stdin_to_websockets_task(
             continue;
         };
 
-        // Put bytes from inbuf to outbuf, 
+        // Put bytes from inbuf to outbuf,
         let mut outbuf = Vec::with_capacity(inbuf.len());
 
         let mut exit = false;
@@ -523,7 +522,6 @@ async fn stdin_to_websockets_task(
         }
     }
 }
-
 
 /// Guard object that will set the terminal to raw mode and restore it
 /// to its previous state when it's dropped
@@ -664,9 +662,10 @@ async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
         .trim_end()
         .parse()?;
 
-    let vnc_port: u32 = fs::read_to_string(format!(".falcon/{}.vnc_port", name))?
-        .trim_end()
-        .parse()?;
+    let vnc_port: u32 =
+        fs::read_to_string(format!(".falcon/{}.vnc_port", name))?
+            .trim_end()
+            .parse()?;
 
     let id: uuid::Uuid = fs::read_to_string(format!(".falcon/{}.uuid", name))?
         .trim_end()

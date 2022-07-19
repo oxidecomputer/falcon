@@ -686,7 +686,8 @@ impl Node {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, &r.propolis_binary, port, vnc_port, &id, self).await?;
+        launch_vm(&r.log, &r.propolis_binary, port, vnc_port, &id, self)
+            .await?;
 
         // initial vm configuration
 
@@ -893,7 +894,10 @@ pub(crate) async fn launch_vm(
     // launch propolis-server
 
     fs::write(format!(".falcon/{}.port", node.name), port.to_string())?;
-    fs::write(format!(".falcon/{}.vnc_port", node.name), vnc_port.to_string())?;
+    fs::write(
+        format!(".falcon/{}.vnc_port", node.name),
+        vnc_port.to_string(),
+    )?;
 
     let stdout = fs::File::create(format!(".falcon/{}.out", node.name))?;
     let stderr = fs::File::create(format!(".falcon/{}.err", node.name))?;
@@ -901,9 +905,14 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::]:{}", port);
     let vnc_sockaddr = format!("[::]:{}", vnc_port);
     let mut cmd = Command::new(propolis_binary);
-    cmd.args(&["run", config.as_ref(), sockaddr.as_ref(), vnc_sockaddr.as_ref()])
-        .stdout(stdout)
-        .stderr(stderr);
+    cmd.args(&[
+        "run",
+        config.as_ref(),
+        sockaddr.as_ref(),
+        vnc_sockaddr.as_ref(),
+    ])
+    .stdout(stdout)
+    .stderr(stderr);
     let child = cmd.spawn()?;
 
     fs::write(format!(".falcon/{}.pid", node.name), child.id().to_string())?;
