@@ -13,9 +13,9 @@ async fn main() -> Result<(), Error> {
     let cello = d.node("cello", "helios-1.1", 2, gb(2));
 
     // links
-    d.softnpu_link(router, violin, None);
-    d.softnpu_link(router, piano, None);
-    d.softnpu_link(router, cello, None);
+    d.softnpu_link(router, violin, Some("1f:e1:de:01:70:1c".into()));
+    d.softnpu_link(router, piano, Some("1f:e1:de:01:70:1d".into()));
+    d.softnpu_link(router, cello, Some("1f:e1:de:01:70:1e".into()));
 
     run(&mut d).await?;
     Ok(())
