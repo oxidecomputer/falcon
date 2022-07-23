@@ -690,7 +690,7 @@ impl Node {
                     EndpointKind::SoftNPU(mac) => {
                         let mut opts = BTreeMap::new();
                         opts.insert(
-                            "vnic-port".to_string(),
+                            "vnic".to_string(),
                             toml::Value::String(d.vnic_link_name(e)),
                         );
                         opts.insert(
