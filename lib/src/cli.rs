@@ -41,6 +41,8 @@ struct Opts {
 
 #[derive(Parser)]
 enum SubCommand {
+    #[clap(about = "run topology preflight")]
+    Preflight(CmdPreflight),
     #[clap(about = "launch topology")]
     Launch(CmdLaunch),
     #[clap(about = "destroy topology")]
@@ -70,6 +72,10 @@ struct CmdLaunch {
     #[clap(short, long)]
     propolis: Option<String>,
 }
+
+#[derive(Parser)]
+#[clap(infer_subcommands = true)]
+struct CmdPreflight {}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
@@ -160,6 +166,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
 
     let opts: Opts = Opts::parse();
     match opts.subcmd {
+        SubCommand::Preflight(_) => {
+            preflight(r).await;
+            Ok(RunMode::Unspec)
+        }
         SubCommand::Launch(l) => {
             if let Some(path) = l.propolis {
                 r.propolis_binary = path
@@ -283,6 +293,13 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     tw.flush()?;
 
     Ok(())
+}
+
+async fn preflight(r: &Runner) {
+    match r.preflight() {
+        Err(e) => println!("{}", e),
+        Ok(()) => {}
+    }
 }
 
 async fn launch(r: &Runner) {

@@ -51,6 +51,7 @@ pub struct Deployment {
     /// The point to point links of this deployment interconnectiong nodes
     pub links: Vec<Link>,
 
+    /// External links connected to a host data link such as a phy or a vnic.
     pub ext_links: Vec<ExtLink>,
 }
 
@@ -129,6 +130,9 @@ pub enum EndpointKind {
     /// you want. The usize parameter indicates radix of the connected Sidecar
     /// device. May optionally specify macs for sidemux ports.
     Sidemux(usize, Option<Vec<String>>),
+
+    /// A link connected to a SoftNPU device with an optional MAC specification
+    SoftNPU(Option<String>),
 }
 
 /// Endpoints are owned by a Link and reference nodes through a references.
@@ -267,6 +271,35 @@ impl Runner {
         self.deployment.nodes[sidecar.index].radix += 1;
         // +1 on the radix is for the pci port
         self.deployment.nodes[controller.index].radix += radix + 1;
+        r
+    }
+
+    pub fn softnpu_link(
+        &mut self,
+        softnpu_node: NodeRef,
+        node: NodeRef,
+        mac: Option<String>,
+    ) -> LinkRef {
+        let r = LinkRef {
+            _index: self.deployment.links.len(),
+        };
+        let l = Link {
+            endpoints: [
+                Endpoint {
+                    node: softnpu_node,
+                    index: self.deployment.nodes[softnpu_node.index].radix,
+                    kind: EndpointKind::SoftNPU(mac),
+                },
+                Endpoint {
+                    node: node,
+                    index: self.deployment.nodes[node.index].radix,
+                    kind: EndpointKind::Viona,
+                },
+            ],
+        };
+        self.deployment.links.push(l);
+        self.deployment.nodes[softnpu_node.index].radix += 1;
+        self.deployment.nodes[node.index].radix += 1;
         r
     }
 
@@ -468,7 +501,6 @@ impl Deployment {
     /// [A-Za-z]?[A-Za-z0-9_]*
     pub fn new(name: &str) -> Self {
         namecheck!(name, "deployment");
-
         Deployment {
             name: String::from(name),
             nodes: Vec::new(),
@@ -579,6 +611,7 @@ impl Node {
 
         //let mut links: Vec<String> = Vec::new();
         let mut viona_index = 0;
+        let mut softnpu_index = 0;
         let mut sidemux_index = 0;
         let mut pci_index = 6;
 
@@ -653,6 +686,35 @@ impl Node {
                         sidemux_index += 1;
                         // +1 on the radix is for the pci port
                         pci_index += radix + 1;
+                    }
+                    EndpointKind::SoftNPU(mac) => {
+                        let mut opts = BTreeMap::new();
+                        opts.insert(
+                            "vnic-port".to_string(),
+                            toml::Value::String(d.vnic_link_name(e)),
+                        );
+                        opts.insert(
+                            "pci-path".to_string(),
+                            toml::Value::String(format!("0.{}.0", pci_index)),
+                        );
+                        match mac {
+                            Some(ref mac) => {
+                                opts.insert(
+                                    "mac".to_string(),
+                                    toml::Value::String(mac.clone()),
+                                );
+                            }
+                            None => { }
+                        };
+                        devices.insert(
+                            format!("port{}", softnpu_index),
+                            propolis_server::config::Device {
+                                driver: "softnpu-port".to_string(),
+                                options: opts,
+                            },
+                        );
+                        softnpu_index += 1;
+                        pci_index += 1;
                     }
                 }
             }
