@@ -6,5 +6,5 @@ route add -inet6 fd00:1000::/24 fe80::aae1:deff:fe01:701e
 route add -inet6 fd00:2000::/24 fe80::aae1:deff:fe01:701e
 
 # warm up ndp
-sleep 1
-ping -ns fe80::aae1:deff:fe01:701e 60 4
+#sleep 1
+#ping -ns fe80::aae1:deff:fe01:701e 60 4
