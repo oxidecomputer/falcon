@@ -196,7 +196,6 @@ impl SerialCommander {
         trace!(self.log, "sc: draining stream");
 
         let mut result = "".to_string();
-        //let detector = b"__FALCON_EXEC_FINISHED__";
         let mut i = 0;
 
         loop {

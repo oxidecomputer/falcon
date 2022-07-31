@@ -1,6 +1,6 @@
 // Copyright 2021 Oxide Computer Company
 
-use libfalcon::{cli::run, error::Error, unit::gb, Runner};
+use libfalcon::{cli::{run, RunMode}, error::Error, unit::gb, Runner};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -17,6 +17,28 @@ async fn main() -> Result<(), Error> {
     d.softnpu_link(router, piano, Some("a8:e1:de:01:70:1d".into()));
     d.softnpu_link(router, cello, Some("a8:e1:de:01:70:1e".into()));
 
-    run(&mut d).await?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", router)?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", violin)?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", piano)?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", cello)?;
+
+    match run(&mut d).await? {
+        RunMode::Launch => {
+            for node in [router, violin, piano, cello] {
+
+                d.exec(node, &format!(
+                    "chmod +x /opt/cargo-bay/{}-init.sh",
+                    d.get_node(node).name,
+                )).await?;
+
+                d.exec(node, &format!(
+                    "/opt/cargo-bay/{}-init.sh",
+                    d.get_node(node).name,
+                )).await?;
+
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }

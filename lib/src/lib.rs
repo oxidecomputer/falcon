@@ -214,6 +214,10 @@ impl Runner {
         r
     }
 
+    pub fn get_node(&self, r: NodeRef) -> &Node {
+        &self.deployment.nodes[r.index]
+    }
+
     /// Create a new link within this deployment between the referenced nodes.
     pub fn link(&mut self, a: NodeRef, b: NodeRef) -> LinkRef {
         let r = LinkRef {
@@ -491,8 +495,10 @@ impl Runner {
         let mut sc = serial::SerialCommander::new(addr, id, self.log.clone());
         let mut ws = sc.connect().await?;
 
-        // if we are here, we are already logged in on the serial port
-        Ok(sc.exec(&mut ws, cmd.to_string()).await?)
+        sc.login(&mut ws).await?;
+        let out = sc.exec(&mut ws, cmd.to_string()).await?;
+        sc.logout(&mut ws).await?;
+        Ok(out)
     }
 }
 
@@ -792,10 +798,8 @@ impl Node {
         );
         sc.exec(&mut ws, cmd).await?;
 
-        // log out and log back in to get updated console
-        //let mut ws = sc.connect().await?;
+        // log out after finishing setup
         sc.logout(&mut ws).await?;
-        sc.login(&mut ws).await?;
 
         Ok(())
     }
