@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use clap::Parser;
 
-use crate::{error::Error, Deployment, Runner};
+use crate::{dataset, error::Error, Deployment, Runner};
 
 pub enum RunMode {
     Unspec,
@@ -324,10 +324,12 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
         Some(node) => node,
     };
 
-    let source = format!("rpool/falcon/topo/{}/{}", d.name, node.name);
+    let dataset = dataset();
+
+    let source = format!("{}/topo/{}/{}", dataset, d.name, node.name);
     let source_snapshot = format!("{}@base", source);
 
-    let dest = format!("rpool/falcon/img/{}", cmd.snapshot_name,);
+    let dest = format!("{}/img/{}", dataset, cmd.snapshot_name,);
     let dest_snapshot = format!("{}@base", source);
 
     // first take a snapshot of the node clone

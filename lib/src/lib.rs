@@ -35,6 +35,9 @@ pub struct Runner {
     pub propolis_binary: String,
 
     log: Logger,
+
+    /// The root dataset to use for falcon activities
+    pub dataset: String,
 }
 
 /// A Deployment is the top level Falcon object. It contains a set of nodes and
@@ -82,6 +85,8 @@ pub struct Node {
     pub cores: u8,
     /// how much memory to give the node in mb
     pub memory: u64,
+    /// The root dataset to use for falcon activities
+    pub dataset: String,
 }
 
 /// Directories mounted from host machine into a node.
@@ -178,6 +183,7 @@ impl Runner {
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
             propolis_binary: "propolis-server".into(),
+            dataset: dataset(),
         }
     }
 
@@ -200,6 +206,7 @@ impl Runner {
         let n = Node {
             name: String::from(name),
             image: String::from(image),
+            dataset: self.dataset.clone(),
             radix: 0,
             mounts: Vec::new(),
             id,
@@ -411,7 +418,7 @@ impl Runner {
 
         // Destroy images
         info!(self.log, "destroying images");
-        let img = format!("rpool/falcon/topo/{}", self.deployment.name);
+        let img = format!("{}/topo/{}", self.dataset, self.deployment.name);
         Command::new("zfs")
             .args(&["destroy", "-r", img.as_ref()])
             .output()?;
@@ -508,9 +515,11 @@ impl Node {
         //Clone base image
 
         //TODO incorporate version into img
-        let source = format!("rpool/falcon/img/{}@base", self.image);
-        let dest =
-            format!("rpool/falcon/topo/{}/{}", r.deployment.name, self.name);
+        let source = format!("{}/img/{}@base", self.dataset, self.image);
+        let dest = format!(
+            "{}/topo/{}/{}",
+            self.dataset, r.deployment.name, self.name
+        );
 
         let out = Command::new("zfs")
             .args(&["clone", "-p", source.as_ref(), dest.as_ref()])
@@ -531,8 +540,8 @@ impl Node {
         // main disk
 
         let zvol = format!(
-            "/dev/zvol/dsk/rpool/falcon/topo/{}/{}",
-            r.deployment.name, self.name,
+            "/dev/zvol/dsk/{}/topo/{}/{}",
+            self.dataset, r.deployment.name, self.name,
         );
         device_options.insert(
             "block_dev".to_string(),
@@ -979,4 +988,11 @@ pub(crate) async fn launch_vm(
         .await?;
 
     Ok(())
+}
+
+pub(crate) fn dataset() -> String {
+    match std::env::var("FALCON_DATASET") {
+        Ok(s) if !s.is_empty() => s,
+        _ => "rpool/falcon".to_string(),
+    }
 }
