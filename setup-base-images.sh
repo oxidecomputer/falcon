@@ -2,6 +2,8 @@
 
 set -e
 
+dataset=${FALCON_DATASET:-rpool/falcon}
+
 # Images follow the naming scheme
 #   <name>-<os_version>-<image_version>
 
@@ -22,12 +24,12 @@ for img in $images; do
     file=$img.raw
 
     name=${img%_*}
-    if [[ ! -b /dev/zvol/dsk/rpool/falcon/img/$name ]]; then
+    if [[ ! -b /dev/zvol/dsk/$dataset/img/$name ]]; then
         echo "Creating ZFS volume $name"
-        pfexec zfs create -p -V 20G rpool/falcon/img/$name
+        pfexec zfs create -p -V 20G "$dataset/img/$name"
         echo "Copying contents of image into volume"
-        pfexec dd if=$img.raw of=/dev/zvol/dsk/rpool/falcon/img/$name conv=sync 
+        pfexec dd if=$img.raw of="/dev/zvol/dsk/$dataset/img/$name" conv=sync
         echo "Creating base image snapshot"
-        pfexec zfs snapshot rpool/falcon/img/$name@base
+        pfexec zfs snapshot "$dataset/img/$name@base"
     fi
 done
