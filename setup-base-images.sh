@@ -54,10 +54,10 @@ function fetch_and_verify {
     sha256sum --status -c "$1.sha256"
     set -e
     if [ $? -eq 0 ]; then
-        echo "latest $1 present"
+        echo "latest $1 archive present"
     else
-        echo "latest $1 is not present, or it is corrupted"
-        echo "fetching latest $1"
+        echo "latest $1 archive is not present, or it is corrupted"
+        echo "fetching latest $1 archive"
         curl -OL $IMAGE_URL
         sha256sum --status -c "$1.sha256"
     fi
@@ -96,6 +96,7 @@ IMAGE_SHA_URL="$IMAGE_BASE_URL/$IMAGE_NAME.xz.sha256"
 
 # get image version
 VERSION=$(curl -L "$IMAGE_BASE_URL/version.txt")
+echo "latest $IMAGE_NAME is $VERSION"
 
 # fetch checksums
 curl -L $IMAGE_SHA_URL | sed 's/\/out\///' > $IMAGE_NAME.xz.sha256
@@ -103,6 +104,7 @@ curl -L $RAW_SHA_URL | sed "s/\/out\/netstack/$VERSION.raw/" > $IMAGE_NAME.sha25
 
 # If image doesn't exist, fetch image
 fetch_and_verify $IMAGE_NAME.xz
+extract_and_verify $IMAGE_NAME
 
 name=${VERSION%_*}
 if [[ ! -b /dev/zvol/dsk/rpool/falcon/img/$name ]]; then
@@ -112,4 +114,6 @@ if [[ ! -b /dev/zvol/dsk/rpool/falcon/img/$name ]]; then
     pfexec dd if=$VERSION.raw of=/dev/zvol/dsk/rpool/falcon/img/$name conv=sync
     echo "Creating base image snapshot"
     pfexec zfs snapshot rpool/falcon/img/$name@base
+else
+    echo "volume already created for $name"
 fi
