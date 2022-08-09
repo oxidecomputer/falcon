@@ -52,8 +52,9 @@ function get_current_branch {
 function fetch_and_verify {
     set +e
     sha256sum --status -c "$1.sha256"
+    status=$?
     set -e
-    if [ $? -eq 0 ]; then
+    if [ $status -eq 0 ]; then
         echo "latest $1 archive present"
     else
         echo "latest $1 archive is not present, or it is corrupted"
@@ -66,8 +67,9 @@ function fetch_and_verify {
 function extract_and_verify {
     set +e
     sha256sum --status -c "$IMAGE_NAME.sha256"
+    status=$?
     set -e
-    if [ $? -eq 0 ]; then
+    if [ $status -eq 0 ]; then
         echo "image already extracted"
     else
         echo "extracting image"
