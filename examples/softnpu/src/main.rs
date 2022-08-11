@@ -7,15 +7,30 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let router = d.node("router", "helios-1.1", 2, gb(2));
+    let router = d.node("router", "netstack-1.2", 2, gb(2));
     let violin = d.node("violin", "helios-1.1", 2, gb(2));
     let piano = d.node("piano", "helios-1.1", 2, gb(2));
     let cello = d.node("cello", "helios-1.1", 2, gb(2));
 
     // links
-    d.softnpu_link(router, violin, Some("a8:e1:de:01:70:1c".into()));
-    d.softnpu_link(router, piano, Some("a8:e1:de:01:70:1d".into()));
-    d.softnpu_link(router, cello, Some("a8:e1:de:01:70:1e".into()));
+    d.softnpu_link(
+        router,
+        violin,
+        Some("a8:e1:de:00:00:01".into()),
+        Some("a8:e1:de:01:70:1c".into())
+    );
+    d.softnpu_link(
+        router,
+        piano,
+        Some("a8:e1:de:00:00:02".into()),
+        Some("a8:e1:de:01:70:1d".into())
+    );
+    d.softnpu_link(
+        router, 
+        cello,
+        Some("a8:e1:de:00:00:03".into()),
+        Some("a8:e1:de:01:70:1e".into())
+    );
 
     d.mount("./cargo-bay", "/opt/cargo-bay", router)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", violin)?;
