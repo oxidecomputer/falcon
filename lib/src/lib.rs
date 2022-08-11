@@ -123,8 +123,9 @@ pub struct ExtLink {
 /// given endpoint on a VM.
 #[derive(Serialize, Deserialize, Clone)]
 pub enum EndpointKind {
-    /// Use a bhyve/viona kernel device. This is the default.
-    Viona,
+    /// Use a bhyve/viona kernel device. This is the default. Optionally specify
+    /// mac.
+    Viona(Option<String>),
 
     /// Use a Sidecar multiplexing device. If you are unsure, this is not what
     /// you want. The usize parameter indicates radix of the connected Sidecar
@@ -228,12 +229,12 @@ impl Runner {
                 Endpoint {
                     node: a,
                     index: self.deployment.nodes[a.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(None),
                 },
                 Endpoint {
                     node: b,
                     index: self.deployment.nodes[b.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(None),
                 },
             ],
         };
@@ -262,7 +263,7 @@ impl Runner {
                 Endpoint {
                     node: sidecar,
                     index: self.deployment.nodes[sidecar.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(None),
                 },
                 Endpoint {
                     node: controller,
@@ -282,7 +283,8 @@ impl Runner {
         &mut self,
         softnpu_node: NodeRef,
         node: NodeRef,
-        mac: Option<String>,
+        node_mac: Option<String>,
+        softnpu_mac: Option<String>,
     ) -> LinkRef {
         let r = LinkRef {
             _index: self.deployment.links.len(),
@@ -292,12 +294,12 @@ impl Runner {
                 Endpoint {
                     node: softnpu_node,
                     index: self.deployment.nodes[softnpu_node.index].radix,
-                    kind: EndpointKind::SoftNPU(mac),
+                    kind: EndpointKind::SoftNPU(softnpu_mac),
                 },
                 Endpoint {
                     node: node,
                     index: self.deployment.nodes[node.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(node_mac),
                 },
             ],
         };
@@ -312,7 +314,7 @@ impl Runner {
         let endpoint = Endpoint {
             node: n,
             index: self.deployment.nodes[n.index].radix,
-            kind: EndpointKind::Viona,
+            kind: EndpointKind::Viona(None),
         };
         let host_ifx = host_ifx.as_ref().into();
         self.deployment
@@ -632,7 +634,7 @@ impl Node {
         for e in &endpoints {
             if d.nodes[e.node.index].name == self.name {
                 match &e.kind {
-                    EndpointKind::Viona => {
+                    EndpointKind::Viona(_) => {
                         //links.push(d.vnic_link_name(e));
                         let mut opts = BTreeMap::new();
                         opts.insert(
@@ -875,9 +877,23 @@ impl Link {
             libnet::create_simnet_link(&slink, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating vnic link '{}'", &vlink);
+
+            let mac = if let EndpointKind::Viona(Some(mac)) = &e.kind {
+                let parts = mac.split(':');
+                let mut v = Vec::new();
+                for p in parts {
+                    let x = u8::from_str_radix(p, 16)?;
+                    v.push(x);
+                }
+                Some(v)
+            } else {
+                None
+            };
+
             libnet::create_vnic_link(
                 &vlink,
                 &slink_h,
+                mac,
                 libnet::LinkFlags::Active,
             )?;
 
@@ -928,6 +944,7 @@ impl ExtLink {
         libnet::create_vnic_link(
             &vnic_name,
             &host_ifx,
+            None,
             libnet::LinkFlags::Active,
         )?;
 
