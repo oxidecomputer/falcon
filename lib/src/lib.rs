@@ -1020,7 +1020,7 @@ pub(crate) async fn launch_vm(
         log.clone(),
     );
 
-    fs::write(format!(".falcon/{}.uuid", node.name), id)?;
+    fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
     let properties = propolis_client::api::InstanceProperties {
         id: *id,
