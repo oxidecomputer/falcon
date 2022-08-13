@@ -53,23 +53,18 @@ async fn main() -> Result<(), Error> {
     d.mount("./cargo-bay", "/opt/cargo-bay", piano)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", cello)?;
 
-    match run(&mut d).await? {
-        RunMode::Launch => {
-            for node in [router, violin, piano, cello] {
-
-                d.exec(node, &format!(
+    if let RunMode::Launch = run(&mut d).await? {
+        for node in [router, violin, piano, cello] {
+            d.exec(node, &format!(
                     "chmod +x /opt/cargo-bay/{}-init.sh",
                     d.get_node(node).name,
-                )).await?;
+            )).await?;
 
-                d.exec(node, &format!(
+            d.exec(node, &format!(
                     "/opt/cargo-bay/{}-init.sh",
                     d.get_node(node).name,
-                )).await?;
-
-            }
+            )).await?;
         }
-        _ => {}
     }
     Ok(())
 }

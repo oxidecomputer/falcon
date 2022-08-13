@@ -1,4 +1,8 @@
-// Copyright 2021 Oxide Computer Company
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+// Copyright 2022 Oxide Computer Company
 
 mod test;
 mod util;
@@ -297,7 +301,7 @@ impl Runner {
                     kind: EndpointKind::SoftNPU(softnpu_mac),
                 },
                 Endpoint {
-                    node: node,
+                    node,
                     index: self.deployment.nodes[node.index].radix,
                     kind: EndpointKind::Viona(node_mac),
                 },
@@ -1016,7 +1020,7 @@ pub(crate) async fn launch_vm(
         log.clone(),
     );
 
-    fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
+    fs::write(format!(".falcon/{}.uuid", node.name), id)?;
 
     let properties = propolis_client::api::InstanceProperties {
         id: *id,

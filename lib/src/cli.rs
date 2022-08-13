@@ -1,4 +1,8 @@
-// Copyright 2021 Oxide Computer Company
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+// Copyright 2022 Oxide Computer Company
 
 use std::fs;
 use std::process::Command;
@@ -296,30 +300,26 @@ fn info(r: &Runner) -> anyhow::Result<()> {
 }
 
 async fn preflight(r: &Runner) {
-    match r.preflight() {
-        Err(e) => println!("{}", e),
-        Ok(()) => {}
+    if let Err(e) = r.preflight() {
+        println!("{}", e)
     }
 }
 
 async fn launch(r: &Runner) {
-    match r.launch().await {
-        Err(e) => println!("{}", e),
-        Ok(()) => {}
+    if let Err(e) = r.launch().await {
+        println!("{}", e)
     }
 }
 
 async fn netcreate(r: &Runner) {
-    match r.net_launch().await {
-        Err(e) => println!("{}", e),
-        Ok(()) => {}
+    if let Err(e) = r.net_launch().await {
+        println!("{}", e)
     }
 }
 
 fn netdestroy(r: &Runner) {
-    match r.net_destroy() {
-        Err(e) => println!("{}", e),
-        Ok(()) => {}
+    if let Err(e) = r.net_destroy() {
+        println!("{}", e)
     }
 }
 
@@ -384,9 +384,8 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
 }
 
 fn destroy(r: &Runner) {
-    match r.destroy() {
-        Err(e) => println!("{}", e),
-        Ok(()) => {}
+    if let Err(e) = r.destroy() {
+        println!("{}", e)
     }
 }
 
