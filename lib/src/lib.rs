@@ -716,7 +716,7 @@ impl Node {
                                     toml::Value::String(mac.clone()),
                                 );
                             }
-                            None => { }
+                            None => {}
                         };
                         devices.insert(
                             format!("port{}", softnpu_index),
