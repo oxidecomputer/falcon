@@ -1020,7 +1020,6 @@ pub(crate) async fn launch_vm(
         log.clone(),
     );
 
-
     // https://github.com/rust-lang/rust-clippy/issues/9317
     #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
