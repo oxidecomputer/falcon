@@ -13,14 +13,12 @@ Currently the nightly toolchain is required.
 
 ## Installing
 
-Install `propolis-server` from the [falcon
-branch](https://github.com/oxidecomputer/propolis/tree/falcon). CI builds for
-that branch are
-[here](https://github.com/oxidecomputer/propolis/runs/5371191090). The
-`get-propolis.sh` script can also be used to automatically install
-propolis-server form the current CI build.
+Install `propolis-server` from the
+[falcon branch](https://github.com/oxidecomputer/propolis/tree/falcon).
+The`get-propolis.sh` script can also be used to automatically install
+propolis-server form the current falcon CI build.
 
-Set up firmware and OS base images.
+Set up propolis, firmware and OS base images.
 ```
 ./get-propolis.sh
 ./get-ovmf.sh
@@ -29,18 +27,15 @@ Set up firmware and OS base images.
 
 ## QuickStart
 
-To get a ready to go Falcon project use the
+To get a ready-to-go Falcon project use the
 [falcon-template](https://github.com/oxidecomputer/falcon-template).
 
-**NOTE:** The falcon-template repository is currently private. So to use the
-cargo-generate command below, you'll need to have ssh keys set up to access the
-repo. If you do not happen to use `~/.ssh/id_rsa` as the key to access private
-repos in the Oxide GitHub Organization, you'll need to use the `--identity` flag
-with cargo generate to point at the proper key.
 
 ```shell
-cargo generate --git git@github.com:oxidecomputer/falcon-template --name duo
+cargo generate --git https://github.com/oxidecomputer/falcon-template --name duo
 ```
+
+This will create a cargo project with the following topology.
 
 ```Rust
 use libfalcon::{cli::run, error::Error, Runner, unit::gb};
@@ -75,7 +70,8 @@ pfexec ./target/debug/duo launch
 ### Get a serial connection to a node
 
 Once the topology is up, you can access the nodes via serial connection. Tap the
-enter key a few times after the serial command. To exit the console use `ctl-q`.
+enter key a few times after running the serial command below. To exit the
+console use `ctl-q`.
 
 ```shell
 ./target/debug/duo serial violin
