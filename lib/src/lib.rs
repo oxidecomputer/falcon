@@ -1,4 +1,8 @@
-// Copyright 2021 Oxide Computer Company
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+// Copyright 2022 Oxide Computer Company
 
 mod test;
 mod util;
@@ -54,6 +58,7 @@ pub struct Deployment {
     /// The point to point links of this deployment interconnectiong nodes
     pub links: Vec<Link>,
 
+    /// External links connected to a host data link such as a phy or a vnic.
     pub ext_links: Vec<ExtLink>,
 }
 
@@ -127,13 +132,17 @@ pub struct ExtLink {
 /// given endpoint on a VM.
 #[derive(Serialize, Deserialize, Clone)]
 pub enum EndpointKind {
-    /// Use a bhyve/viona kernel device. This is the default.
-    Viona,
+    /// Use a bhyve/viona kernel device. This is the default. Optionally specify
+    /// mac.
+    Viona(Option<String>),
 
     /// Use a Sidecar multiplexing device. If you are unsure, this is not what
     /// you want. The usize parameter indicates radix of the connected Sidecar
     /// device. May optionally specify macs for sidemux ports.
     Sidemux(usize, Option<Vec<String>>),
+
+    /// A link connected to a SoftNPU device with an optional MAC specification
+    SoftNPU(Option<String>),
 }
 
 /// Endpoints are owned by a Link and reference nodes through a references.
@@ -217,6 +226,10 @@ impl Runner {
         r
     }
 
+    pub fn get_node(&self, r: NodeRef) -> &Node {
+        &self.deployment.nodes[r.index]
+    }
+
     /// Create a new link within this deployment between the referenced nodes.
     pub fn link(&mut self, a: NodeRef, b: NodeRef) -> LinkRef {
         let r = LinkRef {
@@ -227,12 +240,12 @@ impl Runner {
                 Endpoint {
                     node: a,
                     index: self.deployment.nodes[a.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(None),
                 },
                 Endpoint {
                     node: b,
                     index: self.deployment.nodes[b.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(None),
                 },
             ],
         };
@@ -261,7 +274,7 @@ impl Runner {
                 Endpoint {
                     node: sidecar,
                     index: self.deployment.nodes[sidecar.index].radix,
-                    kind: EndpointKind::Viona,
+                    kind: EndpointKind::Viona(None),
                 },
                 Endpoint {
                     node: controller,
@@ -277,12 +290,42 @@ impl Runner {
         r
     }
 
+    pub fn softnpu_link(
+        &mut self,
+        softnpu_node: NodeRef,
+        node: NodeRef,
+        node_mac: Option<String>,
+        softnpu_mac: Option<String>,
+    ) -> LinkRef {
+        let r = LinkRef {
+            _index: self.deployment.links.len(),
+        };
+        let l = Link {
+            endpoints: [
+                Endpoint {
+                    node: softnpu_node,
+                    index: self.deployment.nodes[softnpu_node.index].radix,
+                    kind: EndpointKind::SoftNPU(softnpu_mac),
+                },
+                Endpoint {
+                    node,
+                    index: self.deployment.nodes[node.index].radix,
+                    kind: EndpointKind::Viona(node_mac),
+                },
+            ],
+        };
+        self.deployment.links.push(l);
+        self.deployment.nodes[softnpu_node.index].radix += 1;
+        self.deployment.nodes[node.index].radix += 1;
+        r
+    }
+
     /// Create an external link attached to `host_ifx`.
     pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
         let endpoint = Endpoint {
             node: n,
             index: self.deployment.nodes[n.index].radix,
-            kind: EndpointKind::Viona,
+            kind: EndpointKind::Viona(None),
         };
         let host_ifx = host_ifx.as_ref().into();
         self.deployment
@@ -465,8 +508,10 @@ impl Runner {
         let mut sc = serial::SerialCommander::new(addr, id, self.log.clone());
         let mut ws = sc.connect().await?;
 
-        // if we are here, we are already logged in on the serial port
-        Ok(sc.exec(&mut ws, cmd.to_string()).await?)
+        sc.login(&mut ws).await?;
+        let out = sc.exec(&mut ws, cmd.to_string()).await?;
+        sc.logout(&mut ws).await?;
+        Ok(out)
     }
 }
 
@@ -475,7 +520,6 @@ impl Deployment {
     /// [A-Za-z]?[A-Za-z0-9_]*
     pub fn new(name: &str) -> Self {
         namecheck!(name, "deployment");
-
         Deployment {
             name: String::from(name),
             nodes: Vec::new(),
@@ -588,6 +632,7 @@ impl Node {
 
         //let mut links: Vec<String> = Vec::new();
         let mut viona_index = 0;
+        let mut softnpu_index = 0;
         let mut sidemux_index = 0;
         let mut pci_index = 6;
 
@@ -602,7 +647,7 @@ impl Node {
         for e in &endpoints {
             if d.nodes[e.node.index].name == self.name {
                 match &e.kind {
-                    EndpointKind::Viona => {
+                    EndpointKind::Viona(_) => {
                         //links.push(d.vnic_link_name(e));
                         let mut opts = BTreeMap::new();
                         opts.insert(
@@ -662,6 +707,35 @@ impl Node {
                         sidemux_index += 1;
                         // +1 on the radix is for the pci port
                         pci_index += radix + 1;
+                    }
+                    EndpointKind::SoftNPU(mac) => {
+                        let mut opts = BTreeMap::new();
+                        opts.insert(
+                            "vnic".to_string(),
+                            toml::Value::String(d.vnic_link_name(e)),
+                        );
+                        opts.insert(
+                            "pci-path".to_string(),
+                            toml::Value::String(format!("0.{}.0", pci_index)),
+                        );
+                        match mac {
+                            Some(ref mac) => {
+                                opts.insert(
+                                    "mac".to_string(),
+                                    toml::Value::String(mac.clone()),
+                                );
+                            }
+                            None => {}
+                        };
+                        devices.insert(
+                            format!("port{}", softnpu_index),
+                            propolis_server::config::Device {
+                                driver: "softnpu-port".to_string(),
+                                options: opts,
+                            },
+                        );
+                        softnpu_index += 1;
+                        pci_index += 1;
                     }
                 }
             }
@@ -739,10 +813,8 @@ impl Node {
         );
         sc.exec(&mut ws, cmd).await?;
 
-        // log out and log back in to get updated console
-        //let mut ws = sc.connect().await?;
+        // log out after finishing setup
         sc.logout(&mut ws).await?;
-        sc.login(&mut ws).await?;
 
         Ok(())
     }
@@ -818,9 +890,23 @@ impl Link {
             libnet::create_simnet_link(&slink, libnet::LinkFlags::Active)?;
 
             info!(r.log, "creating vnic link '{}'", &vlink);
+
+            let mac = if let EndpointKind::Viona(Some(mac)) = &e.kind {
+                let parts = mac.split(':');
+                let mut v = Vec::new();
+                for p in parts {
+                    let x = u8::from_str_radix(p, 16)?;
+                    v.push(x);
+                }
+                Some(v)
+            } else {
+                None
+            };
+
             libnet::create_vnic_link(
                 &vlink,
                 &slink_h,
+                mac,
                 libnet::LinkFlags::Active,
             )?;
 
@@ -871,6 +957,7 @@ impl ExtLink {
         libnet::create_vnic_link(
             &vnic_name,
             &host_ifx,
+            None,
             libnet::LinkFlags::Active,
         )?;
 
@@ -942,6 +1029,8 @@ pub(crate) async fn launch_vm(
         log.clone(),
     );
 
+    // https://github.com/rust-lang/rust-clippy/issues/9317
+    #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
     let properties = propolis_client::api::InstanceProperties {

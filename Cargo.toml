@@ -5,5 +5,6 @@ members = [
     "examples/solo",
     "examples/duo",
     "examples/duo-unit",
-    "examples/helios-dev"
+    "examples/helios-dev",
+    "examples/softnpu"
 ]
