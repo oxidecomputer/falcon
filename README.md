@@ -18,6 +18,17 @@ Install `propolis-server` from the
 The`get-propolis.sh` script can also be used to automatically install
 propolis-server form the current falcon CI build.
 
+To download certain resources you wil need to create a GitHub 
+[personal access token](https://github.com/settings/tokens) with
+`repo` permissions, authorize it with sso, and then add it to your
+`~/.netrc` configuration like so:
+
+```
+machine api.github.com
+login <github_username>
+password <github_token>
+```
+
 Set up propolis, firmware and OS base images.
 ```
 ./get-propolis.sh
