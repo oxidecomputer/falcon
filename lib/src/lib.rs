@@ -814,7 +814,6 @@ impl Node {
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
             info!(r.log, "mouting {}", mount.destination);
-            sc.exec(&mut ws, "p9kp load-driver".into()).await?;
             let cmd = format!(
                 "mkdir -p {dst}; cd {dst}; p9kp pull",
                 dst = mount.destination

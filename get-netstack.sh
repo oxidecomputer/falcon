@@ -78,13 +78,18 @@ fetch_and_verify $IMAGE_NAME.xz
 extract_and_verify $IMAGE_NAME
 
 name=${VERSION%_*}
-if [[ ! -b /dev/zvol/dsk/$dataset/img/$name ]]; then
-    echo "Creating ZFS volume $name"
-    pfexec zfs create -p -V 20G "$dataset/img/$name"
-    echo "Copying contents of image $VERSION into volume"
-    pfexec dd if=$VERSION.raw of="/dev/zvol/dsk/$dataset/img/$name" conv=sync
-    echo "Creating base image snapshot"
-    pfexec zfs snapshot "$dataset/img/$name@base"
-else
+if [[ -b /dev/zvol/dsk/$dataset/img/$name ]]; then
     echo "volume already created for $name"
+    if [[ "$FORCE" == "1" ]]; then
+        pfexec zfs destroy -r "$dataset/img/$name"
+    else
+        exit 0;
+    fi
 fi
+
+echo "Creating ZFS volume $name"
+pfexec zfs create -p -V 20G "$dataset/img/$name"
+echo "Copying contents of image $VERSION into volume"
+pfexec dd if=$VERSION.raw of="/dev/zvol/dsk/$dataset/img/$name" conv=sync
+echo "Creating base image snapshot"
+pfexec zfs snapshot "$dataset/img/$name@base"
