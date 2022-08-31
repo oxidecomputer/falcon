@@ -6,3 +6,8 @@ netadm
 *.p5p
 ddmadm
 ddmd
+devadm
+*.so
+p9kp
+softnpuadm
+tio

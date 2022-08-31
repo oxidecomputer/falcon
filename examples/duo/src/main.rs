@@ -23,6 +23,8 @@ async fn main() -> Result<(), Error> {
     // links
     d.link(violin, piano);
 
+    d.ext_link("igb0", violin);
+
     run(&mut d).await?;
     Ok(())
 }

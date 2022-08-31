@@ -57,6 +57,11 @@ async fn main() -> Result<(), Error> {
         Some("a8:e1:de:01:70:1e".into()),
     );
 
+    d.ext_link("igb0", router);
+    d.ext_link("igb0", violin);
+    d.ext_link("igb0", piano);
+    d.ext_link("igb0", cello);
+
     d.mount("./cargo-bay", "/opt/cargo-bay", router)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", violin)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", piano)?;
