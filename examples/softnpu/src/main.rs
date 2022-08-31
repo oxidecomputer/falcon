@@ -4,21 +4,30 @@
 
 // Copyright 2022 Oxide Computer Company
 
-//
-// +======================+               +=========+
-// |router                |       /-------|violin   |
-// |  +---+  +-------+  +---+    /        |         |
-// |  |   |--|  s    |--|   |---/         +=========+
-// |  +---+  |   o   |  +---+
-// |  +---+  |    f  |  +---+             +=========+
-// |  |   |--|     t |--|   |-------------|piano    |
-// |  +---+  |  n    |  +---+             |         |
-// |  +---+  |   p   |  +---+             +=========+
-// |  |   |--|    u  |--|   |---\
-// |  +---+  +-------+  +---+    \        +=========+
+//          *=========*
+//          |gateway  |
+//          |         |
+//          +=========+
+//               |
+//             +---+
+// *===========| 4 |======*
+// |router     +---+      |
+// |                      |
+// |  +---+  +-------+    |
+// |  | 1 |--|       |    |               *=========*
+// |  +---+  | s     |    |       /-------|violin   |
+// |  +---+  |  o    |  +---+    /        |         |
+// |  | 2 |--|   f   |--| 1 |---/         +=========+
+// |  +---+  |    t  |  +---+
+// |  +---+  |  n    |  +---+             *=========*
+// |  | 3 |--|   p   |--| 2 |-------------|piano    |
+// |  +---+  |    u  |  +---+             |         |
+// |  +---+  |       |  +---+             *=========*
+// |  | 4 |--|       |--| 3 |---\
+// |  +---+  +-------+  +---+    \        *=========*
 // |                      |       \-------|cello    |
-// +======================|               |         |
-//                                        +=========+
+// *======================*               |         |
+//                                        *=========*
 
 use libfalcon::{
     cli::{run, RunMode},
@@ -32,10 +41,11 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let router = d.node("router", "netstack-1.2", 2, gb(2));
-    let violin = d.node("violin", "helios-1.1", 2, gb(2));
-    let piano = d.node("piano", "helios-1.1", 2, gb(2));
-    let cello = d.node("cello", "helios-1.1", 2, gb(2));
+    let router = d.node("router", "netstack-1.4", 4, gb(4));
+    let violin = d.node("violin", "netstack-1.4", 2, gb(2));
+    let piano = d.node("piano", "netstack-1.4", 2, gb(2));
+    let cello = d.node("cello", "netstack-1.4", 2, gb(2));
+    let gateway = d.node("gateway", "netstack-1.4", 2, gb(2));
 
     // links
     d.softnpu_link(
@@ -56,19 +66,27 @@ async fn main() -> Result<(), Error> {
         Some("a8:e1:de:00:00:03".into()),
         Some("a8:e1:de:01:70:1e".into()),
     );
+    d.softnpu_link(
+        router,
+        gateway,
+        Some("a8:e1:de:00:00:04".into()),
+        Some("a8:e1:de:01:70:1f".into()),
+    );
 
     d.ext_link("igb0", router);
     d.ext_link("igb0", violin);
     d.ext_link("igb0", piano);
     d.ext_link("igb0", cello);
+    d.ext_link("igb0", gateway);
 
     d.mount("./cargo-bay", "/opt/cargo-bay", router)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", violin)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", piano)?;
     d.mount("./cargo-bay", "/opt/cargo-bay", cello)?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", gateway)?;
 
     if let RunMode::Launch = run(&mut d).await? {
-        for node in [router, violin, piano, cello] {
+        for node in [router, violin, piano, cello, gateway] {
             d.exec(
                 node,
                 &format!(
