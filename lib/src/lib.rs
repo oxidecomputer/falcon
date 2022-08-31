@@ -611,12 +611,17 @@ impl Node {
             },
         );
 
+        let mut pci_index = 5;
+
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
             let mut opts = BTreeMap::new();
             opts.insert("source".to_string(), m.source.clone().into());
             opts.insert("target".to_string(), m.destination.clone().into());
-            opts.insert("pci-path".to_string(), "0.5.0".into());
+            opts.insert(
+                "pci-path".to_string(),
+                toml::Value::String(format!("0.{}.0", pci_index)),
+            );
 
             devices.insert(
                 format!("fs{}", i),
@@ -625,6 +630,7 @@ impl Node {
                     options: opts,
                 },
             );
+            pci_index += 1;
         }
 
         // network interfaces
@@ -634,7 +640,6 @@ impl Node {
         let mut viona_index = 0;
         let mut softnpu_index = 0;
         let mut sidemux_index = 0;
-        let mut pci_index = 6;
 
         let mut endpoints = Vec::new();
         for l in &d.links {
@@ -642,6 +647,27 @@ impl Node {
         }
         for l in &d.ext_links {
             endpoints.push(l.endpoint.clone());
+        }
+
+        let has_softnpu = endpoints.iter()
+            .find(|x| matches!(&x.kind, EndpointKind::SoftNPU(_)))
+            .is_some();
+
+        if has_softnpu {
+            let mut opts = BTreeMap::new();
+            opts.insert(
+                "pci-path".to_string(),
+                toml::Value::String(format!("0.{}.0", pci_index)),
+            );
+
+            devices.insert(
+                "softnpup9".to_owned(),
+                propolis_server::config::Device {
+                    driver: "softnpu-p9".to_string(),
+                    options: opts,
+                },
+            );
+            pci_index += 1;
         }
 
         for e in &endpoints {
