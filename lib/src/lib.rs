@@ -649,9 +649,9 @@ impl Node {
             endpoints.push(l.endpoint.clone());
         }
 
-        let has_softnpu = endpoints.iter()
-            .find(|x| matches!(&x.kind, EndpointKind::SoftNPU(_)))
-            .is_some();
+        let has_softnpu = endpoints
+            .iter()
+            .any(|x| matches!(&x.kind, EndpointKind::SoftNPU(_)));
 
         if has_softnpu {
             let mut opts = BTreeMap::new();

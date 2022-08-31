@@ -132,9 +132,9 @@ mod test {
     fn check_link_absent(name: &String) -> Result<()> {
         let h = libnet::LinkHandle::Name(name.clone());
         match h.id() {
-            Ok(_) => return Err(anyhow!("link {} should be gone", name)),
-            Err(libnet::Error::NotFound(_)) => return Ok(()),
-            Err(e) => return Err(anyhow!("{}", e)),
+            Ok(_) => Err(anyhow!("link {} should be gone", name)),
+            Err(libnet::Error::NotFound(_)) => Ok(()),
+            Err(e) => Err(anyhow!("{}", e)),
         }
     }
 }
