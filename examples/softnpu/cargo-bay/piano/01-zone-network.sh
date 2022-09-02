@@ -26,20 +26,22 @@ snat_ip=10.100.0.5
 snat_gw_mac=a8:e1:de:00:00:04
 
 /opt/oxide/opte/bin/opteadm create-xde \
-	$name \
-	--private-mac $instance_mac \
+    $name \
+    --private-mac $instance_mac \
     --private-ip $instance_ip \
-	--gateway-mac $gateway_mac \
+    --gateway-mac $gateway_mac \
     --gateway-ip $gateway_ip \
-	--bsvc-addr $boundary_services_addr \
+    --bsvc-addr $boundary_services_addr \
     --bsvc-vni $boundary_services_vni \
-	--vpc-vni $vpc_vni \
-	--vpc-subnet $vpc_subnet \
-	--src-underlay-addr $source_underlay_addr \
+    --vpc-vni $vpc_vni \
+    --vpc-subnet $vpc_subnet \
+    --src-underlay-addr $source_underlay_addr \
     --snat-start $snat_start \
     --snat-end $snat_end \
     --snat-ip $snat_ip \
     --snat-gw-mac $snat_gw_mac
+
+opteadm add-router-entry-ipv4 -p opte0 '0.0.0.0/0' ig
 
 ## vnic =======================================================================
 
