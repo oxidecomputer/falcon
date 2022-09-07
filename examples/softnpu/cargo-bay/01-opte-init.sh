@@ -2,6 +2,6 @@
 
 set -x
 
-dladm create-etherstub stub0
+dladm create-etherstub -t stub0
 
 /opt/oxide/opte/bin/opteadm set-xde-underlay vioif0 stub0

@@ -41,7 +41,7 @@ snat_gw_mac=a8:e1:de:00:00:04
     --snat-ip $snat_ip \
     --snat-gw-mac $snat_gw_mac
 
-opteadm add-router-entry-ipv4 -p opte0 '0.0.0.0/0' ig
+/opt/oxide/opte/bin/opteadm add-router-entry-ipv4 -p xde0 '0.0.0.0/0' ig
 
 ## vnic =======================================================================
 
