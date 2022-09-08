@@ -31,4 +31,4 @@ sleep 1
 ./softnpuadm add-arp-entry 10.100.0.1 a8:e1:de:00:00:04
 sleep 1
 
-./softnpuadm add-nat4 10.100.0.5 4000 7000 fd00:2000::1 
+./softnpuadm add-nat4 10.100.0.5 4000 7000 fd00:2000::1 10 A8:40:25:ff:00:01
