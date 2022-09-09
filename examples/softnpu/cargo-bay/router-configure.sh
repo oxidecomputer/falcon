@@ -19,7 +19,7 @@ sleep 1
 sleep 1
 ./softnpuadm add-route6 fd00:3000:: 24 3 fe80::aae1:deff:fe00:3
 sleep 1
-./softnpuadm add-route4 1.1.1.1  24 4 10.100.0.1
+./softnpuadm add-route4 0.0.0.0 0 4 10.100.0.1
 sleep 1
 
 ./softnpuadm add-ndp-entry fe80::aae1:deff:fe00:1 a8:e1:de:00:00:01
