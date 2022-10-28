@@ -11,7 +11,7 @@ echo "dataset is: $dataset"
 #
 # Old method of pulling statically defined images
 # TODO create new build pipelines for the following images
-images="debian-11.0_0 helios-1.1_0"
+images="debian-11.0_0 helios-1.2_0"
 mkdir -p .img
 pushd .img
 
