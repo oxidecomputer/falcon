@@ -668,6 +668,21 @@ impl Node {
                 },
             );
             pci_index += 1;
+
+            let mut opts = BTreeMap::new();
+            opts.insert(
+                "pci-path".to_string(),
+                toml::Value::String(format!("0.{}.0", pci_index)),
+            );
+
+            devices.insert(
+                "tfport0".to_owned(),
+                propolis_server::config::Device {
+                    driver: "tfport0".to_string(),
+                    options: opts,
+                },
+            );
+            pci_index += 1;
         }
 
         for e in &endpoints {
@@ -740,10 +755,6 @@ impl Node {
                             "vnic".to_string(),
                             toml::Value::String(d.vnic_link_name(e)),
                         );
-                        opts.insert(
-                            "pci-path".to_string(),
-                            toml::Value::String(format!("0.{}.0", pci_index)),
-                        );
                         match mac {
                             Some(ref mac) => {
                                 opts.insert(
@@ -761,7 +772,6 @@ impl Node {
                             },
                         );
                         softnpu_index += 1;
-                        pci_index += 1;
                     }
                 }
             }
