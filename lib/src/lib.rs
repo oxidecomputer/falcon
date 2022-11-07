@@ -375,7 +375,7 @@ impl Runner {
 
     fn preflight(&self) -> Result<(), Error> {
         // Verify all required executables are discoverable.
-        let out = Command::new(&self.propolis_binary).args(&["-V"]).output();
+        let out = Command::new(&self.propolis_binary).args(["-V"]).output();
         if out.is_err() {
             return Err(Error::Exec(format!(
                 "failed to find {} on PATH",
@@ -463,7 +463,7 @@ impl Runner {
         info!(self.log, "destroying images");
         let img = format!("{}/topo/{}", self.dataset, self.deployment.name);
         Command::new("zfs")
-            .args(&["destroy", "-r", img.as_ref()])
+            .args(["destroy", "-r", img.as_ref()])
             .output()?;
 
         // Destroy workspace
@@ -566,7 +566,7 @@ impl Node {
         );
 
         let out = Command::new("zfs")
-            .args(&["clone", "-p", source.as_ref(), dest.as_ref()])
+            .args(["clone", "-p", source.as_ref(), dest.as_ref()])
             .output()?;
 
         if !out.status.success() {
@@ -889,7 +889,7 @@ impl Node {
         // destroy bhyve vm
         let vm_arg = format!("--vm={}", uuid);
         match Command::new("bhyvectl")
-            .args(&["--destroy", vm_arg.as_ref()])
+            .args(["--destroy", vm_arg.as_ref()])
             .output()
         {
             Ok(_) => {}
@@ -1036,7 +1036,7 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::]:{}", port);
     let vnc_sockaddr = format!("[::]:{}", vnc_port);
     let mut cmd = Command::new(propolis_binary);
-    cmd.args(&[
+    cmd.args([
         "run",
         config.as_ref(),
         sockaddr.as_ref(),
@@ -1108,7 +1108,9 @@ pub(crate) async fn launch_vm(
     println!("call instance run");
     // run vm instance
     client
-        .instance_state_put(propolis_client::handmade::api::InstanceStateRequested::Run)
+        .instance_state_put(
+            propolis_client::handmade::api::InstanceStateRequested::Run,
+        )
         .await?;
 
     Ok(())
