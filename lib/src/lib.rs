@@ -1059,7 +1059,7 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client = propolis_client::Client::new(
+    let client = propolis_client::handmade::Client::new(
         SocketAddr::from_str(sockaddr.as_ref())?,
         log.clone(),
     );
@@ -1068,7 +1068,7 @@ pub(crate) async fn launch_vm(
     #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
-    let properties = propolis_client::api::InstanceProperties {
+    let properties = propolis_client::handmade::api::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1077,7 +1077,7 @@ pub(crate) async fn launch_vm(
         memory: node.memory,
         vcpus: node.cores,
     };
-    let req = propolis_client::api::InstanceEnsureRequest {
+    let req = propolis_client::handmade::api::InstanceEnsureRequest {
         properties,
         nics: Vec::new(),
         disks: Vec::new(),
@@ -1108,7 +1108,7 @@ pub(crate) async fn launch_vm(
     println!("call instance run");
     // run vm instance
     client
-        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
+        .instance_state_put(propolis_client::handmade::api::InstanceStateRequested::Run)
         .await?;
 
     Ok(())

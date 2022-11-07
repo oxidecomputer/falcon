@@ -15,7 +15,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use colored::*;
 use futures::{SinkExt, StreamExt};
-use propolis_client::{api::InstanceStateRequested, Client};
+use propolis_client::handmade::{api::InstanceStateRequested, Client};
 use ron::de::from_str;
 use slog::{o, warn, Drain, Level, Logger};
 use tabwriter::TabWriter;
