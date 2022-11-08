@@ -676,9 +676,9 @@ impl Node {
             );
 
             devices.insert(
-                "tfport0".to_owned(),
+                "softnpu-pci-port".to_owned(),
                 propolis_server::config::Device {
-                    driver: "tfport0".to_string(),
+                    driver: "softnpu-pci-port".to_string(),
                     options: opts,
                 },
             );
