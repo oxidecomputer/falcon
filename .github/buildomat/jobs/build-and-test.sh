@@ -20,7 +20,7 @@ ptime -m cargo build --release
 
 banner "check"
 cargo fmt -- --check
-cargo clippy
+cargo clippy -- --deny warnings
 
 #
 # TODO 

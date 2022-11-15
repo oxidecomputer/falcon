@@ -15,7 +15,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use colored::*;
 use futures::{SinkExt, StreamExt};
-use propolis_client::{api::InstanceStateRequested, Client};
+use propolis_client::handmade::{api::InstanceStateRequested, Client};
 use ron::de::from_str;
 use slog::{o, warn, Drain, Level, Logger};
 use tabwriter::TabWriter;
@@ -351,7 +351,7 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
 
     // first take a snapshot of the node clone
     let out = Command::new("zfs")
-        .args(&["snapshot", source_snapshot.as_ref()])
+        .args(["snapshot", source_snapshot.as_ref()])
         .output()?;
     if !out.status.success() {
         return Err(Error::Zfs(String::from_utf8(out.stderr)?));
@@ -359,7 +359,7 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
 
     // next clone the source snapshot to a new base image
     let out = Command::new("zfs")
-        .args(&["clone", source_snapshot.as_ref(), dest.as_ref()])
+        .args(["clone", source_snapshot.as_ref(), dest.as_ref()])
         .output()?;
 
     if !out.status.success() {
@@ -368,7 +368,7 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
 
     // promote the base image to uncouple from source snapshot
     let out = Command::new("zfs")
-        .args(&["promote", dest.as_ref()])
+        .args(["promote", dest.as_ref()])
         .output()?;
     if !out.status.success() {
         return Err(Error::Zfs(String::from_utf8(out.stderr)?));
@@ -376,7 +376,7 @@ fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
 
     // finally create base snapshot for new image
     let out = Command::new("zfs")
-        .args(&["snapshot", dest_snapshot.as_ref()])
+        .args(["snapshot", dest_snapshot.as_ref()])
         .output()?;
     if !out.status.success() {
         return Err(Error::Zfs(String::from_utf8(out.stderr)?));
@@ -646,7 +646,7 @@ async fn hyperstop(name: &str) -> Result<(), Error> {
     // destroy bhyve vm
     let vm_arg = format!("--vm={}", uuid);
     match Command::new("bhyvectl")
-        .args(&["--destroy", vm_arg.as_ref()])
+        .args(["--destroy", vm_arg.as_ref()])
         .output()
     {
         Ok(_) => {}

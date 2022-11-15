@@ -375,7 +375,7 @@ impl Runner {
 
     fn preflight(&self) -> Result<(), Error> {
         // Verify all required executables are discoverable.
-        let out = Command::new(&self.propolis_binary).args(&["-V"]).output();
+        let out = Command::new(&self.propolis_binary).args(["-V"]).output();
         if out.is_err() {
             return Err(Error::Exec(format!(
                 "failed to find {} on PATH",
@@ -463,7 +463,7 @@ impl Runner {
         info!(self.log, "destroying images");
         let img = format!("{}/topo/{}", self.dataset, self.deployment.name);
         Command::new("zfs")
-            .args(&["destroy", "-r", img.as_ref()])
+            .args(["destroy", "-r", img.as_ref()])
             .output()?;
 
         // Destroy workspace
@@ -566,7 +566,7 @@ impl Node {
         );
 
         let out = Command::new("zfs")
-            .args(&["clone", "-p", source.as_ref(), dest.as_ref()])
+            .args(["clone", "-p", source.as_ref(), dest.as_ref()])
             .output()?;
 
         if !out.status.success() {
@@ -611,12 +611,17 @@ impl Node {
             },
         );
 
+        let mut pci_index = 5;
+
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
             let mut opts = BTreeMap::new();
             opts.insert("source".to_string(), m.source.clone().into());
             opts.insert("target".to_string(), m.destination.clone().into());
-            opts.insert("pci-path".to_string(), "0.5.0".into());
+            opts.insert(
+                "pci-path".to_string(),
+                toml::Value::String(format!("0.{}.0", pci_index)),
+            );
 
             devices.insert(
                 format!("fs{}", i),
@@ -625,6 +630,7 @@ impl Node {
                     options: opts,
                 },
             );
+            pci_index += 1;
         }
 
         // network interfaces
@@ -634,7 +640,6 @@ impl Node {
         let mut viona_index = 0;
         let mut softnpu_index = 0;
         let mut sidemux_index = 0;
-        let mut pci_index = 6;
 
         let mut endpoints = Vec::new();
         for l in &d.links {
@@ -642,6 +647,42 @@ impl Node {
         }
         for l in &d.ext_links {
             endpoints.push(l.endpoint.clone());
+        }
+
+        let has_softnpu = endpoints
+            .iter()
+            .any(|x| matches!(&x.kind, EndpointKind::SoftNPU(_)));
+
+        if has_softnpu {
+            let mut opts = BTreeMap::new();
+            opts.insert(
+                "pci-path".to_string(),
+                toml::Value::String(format!("0.{}.0", pci_index)),
+            );
+
+            devices.insert(
+                "softnpup9".to_owned(),
+                propolis_server::config::Device {
+                    driver: "softnpu-p9".to_string(),
+                    options: opts,
+                },
+            );
+            pci_index += 1;
+
+            let mut opts = BTreeMap::new();
+            opts.insert(
+                "pci-path".to_string(),
+                toml::Value::String(format!("0.{}.0", pci_index)),
+            );
+
+            devices.insert(
+                "softnpu-pci-port".to_owned(),
+                propolis_server::config::Device {
+                    driver: "softnpu-pci-port".to_string(),
+                    options: opts,
+                },
+            );
+            pci_index += 1;
         }
 
         for e in &endpoints {
@@ -714,10 +755,6 @@ impl Node {
                             "vnic".to_string(),
                             toml::Value::String(d.vnic_link_name(e)),
                         );
-                        opts.insert(
-                            "pci-path".to_string(),
-                            toml::Value::String(format!("0.{}.0", pci_index)),
-                        );
                         match mac {
                             Some(ref mac) => {
                                 opts.insert(
@@ -735,7 +772,6 @@ impl Node {
                             },
                         );
                         softnpu_index += 1;
-                        pci_index += 1;
                     }
                 }
             }
@@ -788,7 +824,6 @@ impl Node {
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
             info!(r.log, "mouting {}", mount.destination);
-            sc.exec(&mut ws, "p9kp load-driver".into()).await?;
             let cmd = format!(
                 "mkdir -p {dst}; cd {dst}; p9kp pull",
                 dst = mount.destination
@@ -854,7 +889,7 @@ impl Node {
         // destroy bhyve vm
         let vm_arg = format!("--vm={}", uuid);
         match Command::new("bhyvectl")
-            .args(&["--destroy", vm_arg.as_ref()])
+            .args(["--destroy", vm_arg.as_ref()])
             .output()
         {
             Ok(_) => {}
@@ -1001,7 +1036,7 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::]:{}", port);
     let vnc_sockaddr = format!("[::]:{}", vnc_port);
     let mut cmd = Command::new(propolis_binary);
-    cmd.args(&[
+    cmd.args([
         "run",
         config.as_ref(),
         sockaddr.as_ref(),
@@ -1024,7 +1059,7 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client = propolis_client::Client::new(
+    let client = propolis_client::handmade::Client::new(
         SocketAddr::from_str(sockaddr.as_ref())?,
         log.clone(),
     );
@@ -1033,7 +1068,7 @@ pub(crate) async fn launch_vm(
     #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
-    let properties = propolis_client::api::InstanceProperties {
+    let properties = propolis_client::handmade::api::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1042,7 +1077,7 @@ pub(crate) async fn launch_vm(
         memory: node.memory,
         vcpus: node.cores,
     };
-    let req = propolis_client::api::InstanceEnsureRequest {
+    let req = propolis_client::handmade::api::InstanceEnsureRequest {
         properties,
         nics: Vec::new(),
         disks: Vec::new(),
@@ -1073,7 +1108,9 @@ pub(crate) async fn launch_vm(
     println!("call instance run");
     // run vm instance
     client
-        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
+        .instance_state_put(
+            propolis_client::handmade::api::InstanceStateRequested::Run,
+        )
         .await?;
 
     Ok(())

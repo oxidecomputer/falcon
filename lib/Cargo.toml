@@ -21,8 +21,9 @@ slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
 home = "0.5"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
-propolis-server = { git = "https://github.com/oxidecomputer/propolis", branch = "falcon" }
+propolis = { git = "https://github.com/oxidecomputer/propolis", branch = "softnpu-pr", features = ["falcon"] }
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", branch = "softnpu-pr", features = ["falcon"] }
+propolis-server = { git = "https://github.com/oxidecomputer/propolis", branch = "softnpu-pr", features = ["falcon"] }
 toml = "0.5"
 libc = "0.2"
 tokio = { version = "1", features = ["full"] }

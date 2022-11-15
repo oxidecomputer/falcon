@@ -11,17 +11,20 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let violin = d.node("violin", "helios-1.1", 2, 2048);
-    let piano = d.node("piano", "debian-11.0", 2, gb(2));
+    let violin = d.node("violin", "netstack-1.5", 2, 2048);
+    let piano = d.node("piano", "netstack-1.5", 2, gb(2));
 
     // p9fs filesystem mounts
     // make sure you have a folder called "cargo-bay" in the working directory
     // where you execute falcon from
-    d.mount("./cargo-bay", "/opt/stuff", violin)?;
-    d.mount("./cargo-bay", "/opt/stuff", piano)?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", violin)?;
+    d.mount("./cargo-bay", "/opt/cargo-bay", piano)?;
 
     // links
     d.link(violin, piano);
+
+    d.ext_link("igb0", violin);
+    d.ext_link("igb0", piano);
 
     run(&mut d).await?;
     Ok(())
