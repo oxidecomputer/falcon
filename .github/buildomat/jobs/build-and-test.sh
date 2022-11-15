@@ -6,10 +6,6 @@
 #: rust_toolchain = "stable"
 #: output_rules = []
 #:
-#: access_repos = [
-#:   "oxidecomputer/p4",
-#: ]
-#:
 
 set -o errexit
 set -o pipefail

@@ -11,7 +11,6 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("solo");
 
     d.node("violin", "netstack-1.5", 2, gb(2));
-    //d.node("violin", "helios-1.1", 2, gb(2));
     run(&mut d).await?;
     Ok(())
 }
