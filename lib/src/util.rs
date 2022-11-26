@@ -4,7 +4,7 @@
 
 // Copyright 2022 Oxide Computer Company
 
-pub(crate) static NAME_REGEX: &str = r"[A-Za-z]?[A-Za-z0-9_]*";
+pub(crate) static NAME_REGEX: &str = r"^[A-Za-z]?[A-Za-z0-9_]*$";
 
 #[macro_export]
 macro_rules! die {
