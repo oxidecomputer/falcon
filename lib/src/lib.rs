@@ -27,6 +27,13 @@ use std::process::Command;
 use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 
+#[macro_export]
+macro_rules! node {
+    ($d:ident, $name:ident, $img:literal, $cores:literal, $mem:expr) => {
+        let $name = $d.node(stringify!($name), $img, $cores, $mem);
+    };
+}
+
 pub struct Runner {
     /// The deployment object that describes the Falcon topology
     pub deployment: Deployment,
@@ -92,6 +99,8 @@ pub struct Node {
     pub memory: u64,
     /// The root dataset to use for falcon activities
     pub dataset: String,
+    /// Whether or not to do initial setup on the node
+    pub do_setup: bool,
 }
 
 /// Directories mounted from host machine into a node.
@@ -221,13 +230,26 @@ impl Runner {
             id,
             cores,
             memory,
+            do_setup: true,
         };
         self.deployment.nodes.push(n);
         r
     }
 
+    pub fn all_nodes(&self) -> Vec<NodeRef> {
+        let mut result = Vec::new();
+        for index in 0..self.deployment.nodes.len() {
+            result.push(NodeRef { index })
+        }
+        result
+    }
+
     pub fn get_node(&self, r: NodeRef) -> &Node {
         &self.deployment.nodes[r.index]
+    }
+
+    pub fn do_setup(&mut self, r: NodeRef, value: bool) {
+        self.deployment.nodes[r.index].do_setup = value;
     }
 
     /// Create a new link within this deployment between the referenced nodes.
@@ -317,6 +339,36 @@ impl Runner {
         self.deployment.links.push(l);
         self.deployment.nodes[softnpu_node.index].radix += 1;
         self.deployment.nodes[node.index].radix += 1;
+        r
+    }
+
+    pub fn softnpu_links(
+        &mut self,
+        node1: NodeRef,
+        node2: NodeRef,
+        mac1: Option<String>,
+        mac2: Option<String>,
+    ) -> LinkRef {
+        let r = LinkRef {
+            _index: self.deployment.links.len(),
+        };
+        let l = Link {
+            endpoints: [
+                Endpoint {
+                    node: node1,
+                    index: self.deployment.nodes[node1.index].radix,
+                    kind: EndpointKind::SoftNPU(mac1),
+                },
+                Endpoint {
+                    node: node2,
+                    index: self.deployment.nodes[node2.index].radix,
+                    kind: EndpointKind::SoftNPU(mac2),
+                },
+            ],
+        };
+        self.deployment.links.push(l);
+        self.deployment.nodes[node1.index].radix += 1;
+        self.deployment.nodes[node2.index].radix += 1;
         r
     }
 
@@ -808,6 +860,10 @@ impl Node {
         launch_vm(&r.log, &r.propolis_binary, port, vnc_port, &id, self)
             .await?;
 
+        if !self.do_setup {
+            return Ok(());
+        }
+
         // initial vm configuration
 
         let ws_sockaddr = format!("[::1]:{}", port);
@@ -1088,7 +1144,7 @@ pub(crate) async fn launch_vm(
     // we just launched the instance, so wait for it to become ready
     let mut success = false;
     for _ in 0..30 {
-        println!("call instance ensure");
+        info!(log, "instance ensure: {}", node.name);
         match client.instance_ensure(&req).await {
             Ok(_) => {
                 success = true;
@@ -1101,11 +1157,10 @@ pub(crate) async fn launch_vm(
         }
     }
     if !success {
-        println!("call instance ensure2");
         client.instance_ensure(&req).await?;
     }
 
-    println!("call instance run");
+    info!(log, "instance run: {}", node.name);
     // run vm instance
     client
         .instance_state_put(

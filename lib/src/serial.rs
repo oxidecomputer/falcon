@@ -98,8 +98,8 @@ impl SerialCommander {
                     for x in input {
                         if x == prompt[i] {
                             i += 1;
-                            if i == prompt.len() - 1 {
-                                debug!(self.log, "sc: prompt detected");
+                            if i == prompt.len() {
+                                debug!(self.log, "sc: prompt detected",);
                                 return Ok(());
                             }
                         } else {
