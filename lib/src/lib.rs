@@ -236,6 +236,14 @@ impl Runner {
         r
     }
 
+    pub fn all_nodes(&self) -> Vec<NodeRef> {
+        let mut result = Vec::new();
+        for index in 0..self.deployment.nodes.len() {
+            result.push(NodeRef { index })
+        }
+        result
+    }
+
     pub fn get_node(&self, r: NodeRef) -> &Node {
         &self.deployment.nodes[r.index]
     }
