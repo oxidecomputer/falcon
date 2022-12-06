@@ -13,10 +13,8 @@ Currently the nightly toolchain is required.
 
 ## Installing
 
-Install `propolis-server` from the
-[falcon branch](https://github.com/oxidecomputer/propolis/tree/falcon).
-The`get-propolis.sh` script can also be used to automatically install
-propolis-server form the current falcon CI build.
+Install `propolis-server`.  The`get-propolis.sh` script can also be used to
+automatically install propolis-server form the current falcon CI build.
 
 Set up propolis, firmware and OS base images.
 ```
@@ -24,6 +22,10 @@ Set up propolis, firmware and OS base images.
 ./get-ovmf.sh
 ./setup-base-images.sh
 ```
+
+Falcon-enabled propolis builds are kicked out by Propolis CI. See
+[this run](https://github.com/oxidecomputer/propolis/runs/9857805738)
+as an example.
 
 ## QuickStart
 
