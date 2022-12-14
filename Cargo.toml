@@ -1,5 +1,9 @@
 [workspace]
 
+default-members = [
+    "lib",
+]
+
 members = [
     "lib",
     "examples/solo",
