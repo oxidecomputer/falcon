@@ -34,7 +34,7 @@ pub enum Error {
     Ron(#[from] ron::Error),
     TomL(#[from] toml::ser::Error),
     AddrParse(#[from] std::net::AddrParseError),
-    Propolis(#[from] propolis_client::handmade::Error),
+    Propolis(#[from] propolis_client::Error),
     IntParse(#[from] std::num::ParseIntError),
     TryIntParse(#[from] std::num::TryFromIntError),
     WsError(#[from] tokio_tungstenite::tungstenite::Error),

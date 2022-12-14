@@ -649,7 +649,7 @@ impl Node {
         );
         devices.insert(
             "block0".to_string(),
-            propolis_server::config::Device {
+            propolis_server_config::Device {
                 driver: "pci-virtio-block".to_string(),
                 options: device_options,
             },
@@ -657,7 +657,7 @@ impl Node {
         blockdev_options.insert("path".to_string(), toml::Value::String(zvol));
         block_devs.insert(
             "main_disk".to_string(),
-            propolis_server::config::BlockDevice {
+            propolis_server_config::BlockDevice {
                 bdtype: "file".to_string(),
                 options: blockdev_options,
             },
@@ -677,7 +677,7 @@ impl Node {
 
             devices.insert(
                 format!("fs{}", i),
-                propolis_server::config::Device {
+                propolis_server_config::Device {
                     driver: "pci-virtio-9p".to_string(),
                     options: opts,
                 },
@@ -714,7 +714,7 @@ impl Node {
 
             devices.insert(
                 "softnpup9".to_owned(),
-                propolis_server::config::Device {
+                propolis_server_config::Device {
                     driver: "softnpu-p9".to_string(),
                     options: opts,
                 },
@@ -729,7 +729,7 @@ impl Node {
 
             devices.insert(
                 "softnpu-pci-port".to_owned(),
-                propolis_server::config::Device {
+                propolis_server_config::Device {
                     driver: "softnpu-pci-port".to_string(),
                     options: opts,
                 },
@@ -753,7 +753,7 @@ impl Node {
                         );
                         devices.insert(
                             format!("net{}", viona_index),
-                            propolis_server::config::Device {
+                            propolis_server_config::Device {
                                 driver: "pci-virtio-viona".to_string(),
                                 options: opts,
                             },
@@ -792,7 +792,7 @@ impl Node {
                         }
                         devices.insert(
                             format!("sidemux{}", sidemux_index),
-                            propolis_server::config::Device {
+                            propolis_server_config::Device {
                                 driver: "sidemux".into(),
                                 options: opts,
                             },
@@ -818,7 +818,7 @@ impl Node {
                         };
                         devices.insert(
                             format!("port{}", softnpu_index),
-                            propolis_server::config::Device {
+                            propolis_server_config::Device {
                                 driver: "softnpu-port".to_string(),
                                 options: opts,
                             },
@@ -829,12 +829,12 @@ impl Node {
             }
         }
 
-        let cs = propolis_server::config::Chipset {
+        let cs = propolis_server_config::Chipset {
             options: BTreeMap::new(),
         };
 
         // write propolis instance config to .falcon/<node-name>.toml
-        let propolis_config = propolis_server::config::Config::new(
+        let propolis_config = propolis_server_config::Config::new(
             PathBuf::from("/var/ovmf/OVMF_CODE.fd"), //TODO needs to come from somewhere
             cs,
             devices,
@@ -1115,7 +1115,7 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client = propolis_client::handmade::Client::new(
+    let client = propolis_client::Client::new(
         SocketAddr::from_str(sockaddr.as_ref())?,
         log.clone(),
     );
@@ -1124,7 +1124,7 @@ pub(crate) async fn launch_vm(
     #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
-    let properties = propolis_client::handmade::api::InstanceProperties {
+    let properties = propolis_client::api::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1133,7 +1133,7 @@ pub(crate) async fn launch_vm(
         memory: node.memory,
         vcpus: node.cores,
     };
-    let req = propolis_client::handmade::api::InstanceEnsureRequest {
+    let req = propolis_client::api::InstanceEnsureRequest {
         properties,
         nics: Vec::new(),
         disks: Vec::new(),
@@ -1163,9 +1163,7 @@ pub(crate) async fn launch_vm(
     info!(log, "instance run: {}", node.name);
     // run vm instance
     client
-        .instance_state_put(
-            propolis_client::handmade::api::InstanceStateRequested::Run,
-        )
+        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
         .await?;
 
     Ok(())
