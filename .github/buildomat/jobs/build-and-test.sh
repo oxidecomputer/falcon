@@ -15,12 +15,12 @@ cargo --version
 rustc --version
 
 banner "build"
-ptime -m cargo build
-ptime -m cargo build --release
+ptime -m cargo build --all
+ptime -m cargo build --all --release
 
 banner "check"
-cargo fmt -- --check
-cargo clippy -- --deny warnings
+cargo fmt --all -- --check
+cargo clippy --all -- --deny warnings
 
 #
 # TODO 
