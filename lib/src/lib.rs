@@ -12,6 +12,7 @@ pub mod error;
 pub mod serial;
 pub mod unit;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
 use ron::ser::{to_string_pretty, PrettyConfig};
@@ -107,10 +108,10 @@ pub struct Node {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Mount {
     /// Directory from host to mount.
-    pub source: String,
+    pub source: Utf8PathBuf,
 
     /// Directory in node to mount to.
-    pub destination: String,
+    pub destination: Utf8PathBuf,
 }
 
 /// Node references are passed back to clients when nodes are created. These are
@@ -390,21 +391,21 @@ impl Runner {
     /// `dst`.
     pub fn mount(
         &mut self,
-        src: impl AsRef<str>,
-        dst: impl AsRef<str>,
+        src: impl AsRef<Utf8Path>,
+        dst: impl AsRef<Utf8Path>,
         n: NodeRef,
     ) -> Result<(), Error> {
-        let pb = PathBuf::from(src.as_ref());
-        let cpath = fs::canonicalize(pb).map_err(|e| {
-            Error::PathError(format!("{}: {}", src.as_ref(), e))
-        })?;
-        let cpath_str = cpath.to_str().ok_or_else(|| {
-            Error::PathError(format!("bad path: {}", src.as_ref()))
+        let src = src.as_ref();
+        let src = src.canonicalize_utf8().map_err(|error| {
+            Error::PathError(format!(
+                "{}: canonicalization error: {}",
+                src, error
+            ))
         })?;
 
         self.deployment.nodes[n.index].mounts.push(Mount {
-            source: cpath_str.to_string(),
-            destination: dst.as_ref().to_string(),
+            source: src,
+            destination: dst.as_ref().to_owned(),
         });
 
         Ok(())
@@ -668,8 +669,8 @@ impl Node {
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
             let mut opts = BTreeMap::new();
-            opts.insert("source".to_string(), m.source.clone().into());
-            opts.insert("target".to_string(), m.destination.clone().into());
+            opts.insert("source".to_string(), m.source.to_string().into());
+            opts.insert("target".to_string(), m.destination.to_string().into());
             opts.insert(
                 "pci-path".to_string(),
                 toml::Value::String(format!("0.{}.0", pci_index)),
