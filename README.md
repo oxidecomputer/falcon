@@ -7,14 +7,18 @@ Falcon is a Rust API for creating network topologies composed of
 simnet links. It's designed to be used for both automated testing and as a
 development environment for networked systems.
 
-**Falcon runs on Helios >= 1.0.20707**
+## Requirements
 
-Currently the nightly toolchain is required.
+- Falcon runs on Helios >= 1.0.20707
+- Falcon uses [propolis](https://github.com/oxidecomputer/propolis) which
+  requires hardware virtualization support. Running Falcon on bare metal is
+  recommended. While nested virt can be made to work, it often requires wizardry
+  and is known to have flaky behaviors.
 
 ## Installing
 
 Install `propolis-server`.  The`get-propolis.sh` script can also be used to
-automatically install propolis-server form the current falcon CI build.
+automatically install propolis-server form the current Falcon CI build.
 
 Set up propolis, firmware and OS base images.
 ```
@@ -47,8 +51,8 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes, each with 2 cores and 2G of memory
-    let violin = d.node("violin", "helios-1.1", 2, gb(2));
-    let piano = d.node("piano", "helios-1.1", 2, gb(2));
+    let violin = d.node("violin", "helios-1.3", 2, gb(2));
+    let piano = d.node("piano", "helios-1.3", 2, gb(2));
 
     // links
     d.link(violin, piano);
