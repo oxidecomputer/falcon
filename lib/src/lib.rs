@@ -395,7 +395,7 @@ impl Runner {
         n: NodeRef,
     ) -> Result<(), Error> {
         let pb = PathBuf::from(src.as_ref());
-        let cpath = fs::canonicalize(&pb).map_err(|e| {
+        let cpath = fs::canonicalize(pb).map_err(|e| {
             Error::PathError(format!("{}: {}", src.as_ref(), e))
         })?;
         let cpath_str = cpath.to_str().ok_or_else(|| {
