@@ -13,8 +13,8 @@ mod tests {
     #[ignore]
     async fn duo_ping() -> Result<()> {
         let mut d = Runner::new("duo");
-        let violin = d.node("violin", "helios-1.1", 2, 2048);
-        let piano = d.node("piano", "helios-1.1", 2, gb(2));
+        let violin = d.node("violin", "helios-1.3", 2, 2048);
+        let piano = d.node("piano", "helios-1.3", 2, gb(2));
         d.link(violin, piano);
 
         d.launch().await?;

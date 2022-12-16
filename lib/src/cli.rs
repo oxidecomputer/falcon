@@ -158,8 +158,8 @@ struct CmdInfo {}
 /// let mut r = Runner::new("duo");
 ///
 /// // nodes
-/// let violin = r.node("violin", "helios-1.1", 1, 1024);
-/// let piano = r.node("piano", "helios-1.1", 1, 1024);
+/// let violin = r.node("violin", "helios-1.3", 1, 1024);
+/// let piano = r.node("piano", "helios-1.3", 1, 1024);
 ///
 /// // links
 /// r.link(violin, piano);
