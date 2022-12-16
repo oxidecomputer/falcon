@@ -11,13 +11,14 @@ development environment for networked systems.
 
 - Falcon runs on Helios >= 1.0.20707
 - Falcon uses [propolis](https://github.com/oxidecomputer/propolis) which
-  requires hardware virtualization support. While nested virt can be made to
-  work, it often requires wizardry and is known to have flaky behaviors.
+  requires hardware virtualization support. Running Falcon on bare metal is
+  recommended. While nested virt can be made to work, it often requires wizardry
+  and is known to have flaky behaviors.
 
 ## Installing
 
 Install `propolis-server`.  The`get-propolis.sh` script can also be used to
-automatically install propolis-server form the current falcon CI build.
+automatically install propolis-server form the current Falcon CI build.
 
 Set up propolis, firmware and OS base images.
 ```
