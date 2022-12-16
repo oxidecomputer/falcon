@@ -13,6 +13,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context};
+use clap::ArgAction;
 use colored::*;
 use futures::{SinkExt, StreamExt};
 use propolis_client::{api::InstanceStateRequested, Client};
@@ -36,8 +37,8 @@ pub enum RunMode {
 #[clap(version = "0.1")]
 #[clap(infer_subcommands = true)]
 struct Opts {
-    #[clap(short, long, parse(from_occurrences))]
-    verbose: i32,
+    #[clap(short, long, action = ArgAction::Count)]
+    verbose: u8,
 
     #[clap(subcommand)]
     subcmd: SubCommand,
