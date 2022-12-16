@@ -100,9 +100,12 @@ This assumes that that the instructions in the install section have been run.
 
 ```
 cargo build
-pfexec cargo test -- --test-threads 1
-pfexec cargo test -- --test-threads 1 --ignored
+cargo test -- --test-threads 1
+cargo test -- --test-threads 1 --ignored
 ```
+
+Note that `cargo test` will automatically use `pfexec` to run tests; this is configured in
+[.cargo/config.toml](.cargo/config.toml).
 
 Due to a shared `.falcon` directory, concurrent tests are not possible at the
 current time.

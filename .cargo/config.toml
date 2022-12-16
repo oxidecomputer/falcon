@@ -3,3 +3,7 @@ LIBZFS_CORE_LOOKUP_WITH = "link"
 
 [net]
 git-fetch-with-cli = true
+
+# Set up pfexec as a target runner since tests always need to be run as root.
+[target.'cfg(target_os = "illumos")']
+runner = "pfexec"
