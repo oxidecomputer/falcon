@@ -405,42 +405,6 @@ async fn console(name: &str) -> Result<(), Error> {
 
 // TODO copy pasta from propolis/cli/src/main.rs
 async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
-    /*
-    let path = format!("ws://{}/instance/serial", addr);
-    let (mut ws, _) = tokio_tungstenite::connect_async(path)
-        .await
-        .with_context(|| anyhow!("failed to create serial websocket stream"))?;
-
-    let _raw_guard = RawTermiosGuard::stdio_guard()
-        .with_context(|| anyhow!("failed to set raw mode"))?;
-
-    let mut stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
-
-    loop {
-        tokio::select! {
-            c = stdin.read_u8() => {
-                match c? {
-                    // Exit on Ctrl-Q
-                    b'\x11' => break,
-                    c => ws.send(Message::binary(vec![c])).await?,
-                }
-            }
-            msg = ws.next() => {
-                match msg {
-                    Some(Ok(Message::Binary(input))) => {
-                        stdout.write_all(&input).await?;
-                        stdout.flush().await?;
-                    }
-                    Some(Ok(Message::Close(..))) | None => break,
-                    _ => continue,
-                }
-            }
-        }
-    }
-
-    Ok(())
-    */
     let path = format!("ws://{}/instance/serial", addr);
     let (mut ws, _) = tokio_tungstenite::connect_async(path)
         .await
@@ -596,14 +560,6 @@ async fn reboot(name: &str) -> Result<(), Error> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let log = create_logger();
     let client = Client::new(addr, log.new(o!()));
-
-    // Grab the Instance UUID
-    /*
-    let id = client
-        .instance_get_uuid(name)
-        .await
-        .with_context(|| anyhow!("failed to get instance UUID"))?;
-    */
 
     // reboot
     client
