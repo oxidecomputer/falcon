@@ -28,7 +28,7 @@ Set up propolis, firmware and OS base images.
 ```
 
 Falcon-enabled propolis builds are kicked out by Propolis CI. See
-[this run](https://github.com/oxidecomputer/propolis/runs/9857805738)
+[this run](https://github.com/oxidecomputer/propolis/runs/11349557353)
 as an example.
 
 ## QuickStart
