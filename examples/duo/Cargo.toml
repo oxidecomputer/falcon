@@ -7,4 +7,4 @@ edition = "2018"
 
 [dependencies]
 libfalcon = { path = "../../lib" }
-tokio = { version = "1", features = ["full"] }
+tokio.workspace = true
