@@ -308,13 +308,13 @@ pub struct ZoneConfig {
 }
 
 impl ZoneConfig {
-    pub fn new(name: &str, zfs: &Zfs) -> Self {
+    pub fn new(name: &str, brand: &str, zfs: &Zfs) -> Self {
         let mut config = Config::create(name, true, CreationOptions::Default);
         config
             .get_global()
             .set_path(zfs.path_for(name))
             .set_autoboot(true)
-            .set_brand("sparse")
+            .set_brand(brand)
             .set_ip_type(IpType::Exclusive);
         Self {
             name: name.into(),
@@ -396,10 +396,15 @@ pub struct Zone {
 }
 
 impl Zone {
-    pub fn new(name: &str, zfs: &Zfs, phys: &[&str]) -> Result<Self> {
+    pub fn new(
+        name: &str,
+        brand: &str,
+        zfs: &Zfs,
+        phys: &[&str],
+    ) -> Result<Self> {
         // init config
         println!("configure zone");
-        let mut config = ZoneConfig::new(name, zfs);
+        let mut config = ZoneConfig::new(name, brand, zfs);
         for phy in phys {
             config.add_phy(phy);
         }
