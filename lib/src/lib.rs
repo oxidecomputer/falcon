@@ -4,6 +4,7 @@
 
 // Copyright 2022 Oxide Computer Company
 
+#[cfg(test)]
 mod test;
 mod util;
 
