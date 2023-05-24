@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
-use zone::{Adm, Config, CreationOptions, IpType, Net, Zlogin};
+use zone::{Adm, Config, CreationOptions, Fs, IpType, Net, Zlogin};
 
 const PFEXEC: &str = "/bin/pfexec";
 
@@ -277,6 +277,24 @@ impl Zfs {
         Ok(())
     }
 
+    pub fn copy_to_zone_recursive(
+        &self,
+        name: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<()> {
+        let to = format!("/{}/{}/root/{}", self.name, name, to);
+        println!("cp -r {} {}", from, to);
+        std::process::Command::new(PFEXEC)
+            .env_clear()
+            .arg("cp")
+            .arg("-r")
+            .arg(from)
+            .arg(to)
+            .output()?;
+        Ok(())
+    }
+
     pub fn copy_bin_to_zone(&self, name: &str, bin: &str) -> Result<()> {
         let from = match env!("CARGO_WORKSPACE_DIR") {
             "" => format!("target/debug/{}", bin),
@@ -284,6 +302,32 @@ impl Zfs {
         };
         let to = format!("opt/{}", bin);
         self.copy_to_zone(name, &from, &to)
+    }
+
+    pub fn copy_workspace_to_zone(
+        &self,
+        name: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<()> {
+        let from = match env!("CARGO_WORKSPACE_DIR") {
+            "" => from.into(),
+            path => format!("{}{}", path, from),
+        };
+        self.copy_to_zone(name, &from, to)
+    }
+
+    pub fn copy_workspace_to_zone_recursive(
+        &self,
+        name: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<()> {
+        let from = match env!("CARGO_WORKSPACE_DIR") {
+            "" => from.into(),
+            path => format!("{}{}", path, from),
+        };
+        self.copy_to_zone_recursive(name, &from, to)
     }
 }
 
@@ -324,6 +368,14 @@ impl ZoneConfig {
     fn add_phy(&mut self, name: &str) {
         self.add_net(&Net {
             physical: name.into(),
+            ..Default::default()
+        });
+    }
+    fn add_lofs(&mut self, special: &str, dir: &str) {
+        self.add_fs(&Fs {
+            ty: "lofs".into(),
+            dir: dir.into(),
+            special: special.into(),
             ..Default::default()
         });
     }
@@ -395,18 +447,36 @@ pub struct Zone {
     pub boot: Option<ZoneBoot>,
 }
 
+pub struct FsMount {
+    pub source: String,
+    pub target: String,
+}
+
+impl FsMount {
+    pub fn new(source: &str, target: &str) -> FsMount {
+        FsMount {
+            source: source.into(),
+            target: target.into(),
+        }
+    }
+}
+
 impl Zone {
     pub fn new(
         name: &str,
         brand: &str,
         zfs: &Zfs,
         phys: &[&str],
+        fs: &[FsMount],
     ) -> Result<Self> {
         // init config
         println!("configure zone");
         let mut config = ZoneConfig::new(name, brand, zfs);
         for phy in phys {
             config.add_phy(phy);
+        }
+        for mount in fs {
+            config.add_lofs(&mount.source, &mount.target);
         }
         config.run_blocking()?;
 
