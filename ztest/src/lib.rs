@@ -296,9 +296,14 @@ impl Zfs {
     }
 
     pub fn copy_bin_to_zone(&self, name: &str, bin: &str) -> Result<()> {
+        let profile = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
         let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => format!("target/debug/{}", bin),
-            path => format!("{}target/debug/{}", path, bin),
+            "" => format!("target/{}/{}", profile, bin),
+            path => format!("{}target/{}/{}", path, profile, bin),
         };
         let to = format!("opt/{}", bin);
         self.copy_to_zone(name, &from, &to)
