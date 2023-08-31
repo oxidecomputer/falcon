@@ -638,7 +638,7 @@ impl Node {
         // main disk
 
         let zvol = format!(
-            "/dev/zvol/dsk/{}/topo/{}/{}",
+            "/dev/zvol/rdsk/{}/topo/{}/{}",
             self.dataset, r.deployment.name, self.name,
         );
         device_options.insert(
