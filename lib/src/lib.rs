@@ -16,6 +16,7 @@ pub mod unit;
 use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
+use propolis_server_config::BlockOpts;
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
@@ -662,6 +663,11 @@ impl Node {
             propolis_server_config::BlockDevice {
                 bdtype: "file".to_string(),
                 options: blockdev_options,
+                opts: BlockOpts {
+                    block_size: None,
+                    read_only: None,
+                    skip_flush: Some(true),
+                },
             },
         );
 
@@ -831,18 +837,19 @@ impl Node {
             }
         }
 
-        let cs = propolis_server_config::Chipset {
+        let chipset = propolis_server_config::Chipset {
             options: BTreeMap::new(),
         };
 
         // write propolis instance config to .falcon/<node-name>.toml
-        let propolis_config = propolis_server_config::Config::new(
-            PathBuf::from("/var/ovmf/OVMF_CODE.fd"), //TODO needs to come from somewhere
-            cs,
+
+        let propolis_config = propolis_server_config::Config {
+            bootrom: PathBuf::from("/var/ovmf/OVMF_CODE.fd"),
+            chipset,
             devices,
             block_devs,
-            Vec::new(),
-        );
+            ..Default::default()
+        };
 
         let config_toml = toml::to_string(&propolis_config)?;
         fs::write(format!(".falcon/{}.toml", self.name), config_toml)?;
