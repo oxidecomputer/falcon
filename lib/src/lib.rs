@@ -157,6 +157,16 @@ pub enum EndpointKind {
     SoftNPU(Option<String>),
 }
 
+impl EndpointKind {
+    fn designator(&self) -> &'static str {
+        match self {
+            Self::Viona(_) => "vn",
+            Self::Sidemux(_, _) => "sm",
+            Self::SoftNPU(_) => "sn",
+        }
+    }
+}
+
 /// Endpoints are owned by a Link and reference nodes through a references.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Endpoint {
@@ -255,6 +265,12 @@ impl Runner {
         self.deployment.nodes[r.index].do_setup = value;
     }
 
+    pub fn bump_radix(&mut self, node: NodeRef) -> usize {
+        let current = self.deployment.nodes[node.index].radix;
+        self.deployment.nodes[node.index].radix += 1;
+        current
+    }
+
     /// Create a new link within this deployment between the referenced nodes.
     pub fn link(&mut self, a: NodeRef, b: NodeRef) -> LinkRef {
         let r = LinkRef {
@@ -298,20 +314,17 @@ impl Runner {
             endpoints: [
                 Endpoint {
                     node: sidecar,
-                    index: self.deployment.nodes[sidecar.index].radix,
+                    index: self.bump_radix(sidecar),
                     kind: EndpointKind::Viona(None),
                 },
                 Endpoint {
                     node: controller,
-                    index: self.deployment.nodes[controller.index].radix,
+                    index: self.bump_radix(controller),
                     kind: EndpointKind::Sidemux(radix, macs),
                 },
             ],
         };
         self.deployment.links.push(l);
-        self.deployment.nodes[sidecar.index].radix += 1;
-        // +1 on the radix is for the pci port
-        self.deployment.nodes[controller.index].radix += radix + 1;
         r
     }
 
@@ -585,15 +598,21 @@ impl Deployment {
 
     fn simnet_link_name(&self, e: &Endpoint) -> String {
         format!(
-            "{}_{}_sim{}",
-            self.name, self.nodes[e.node.index].name, e.index,
+            "{}_{}_{}_sim{}",
+            self.name,
+            self.nodes[e.node.index].name,
+            e.kind.designator(),
+            e.index,
         )
     }
 
     fn vnic_link_name(&self, e: &Endpoint) -> String {
         format!(
-            "{}_{}_vnic{}",
-            self.name, self.nodes[e.node.index].name, e.index,
+            "{}_{}_{}_vnic{}",
+            self.name,
+            self.nodes[e.node.index].name,
+            e.kind.designator(),
+            e.index,
         )
     }
 }
