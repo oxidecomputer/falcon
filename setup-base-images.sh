@@ -40,5 +40,3 @@ for img in $images; do
 done
 
 popd
-
-./get-netstack.sh
