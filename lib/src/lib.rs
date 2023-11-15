@@ -1001,9 +1001,13 @@ impl Link {
 
             // if dangling links exists, remove them
             debug!(r.log, "destroying link {}", &vlink);
-            libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)
+            })?;
             debug!(r.log, "destroying link {}", &slink);
-            libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&slink_h, libnet::LinkFlags::Active)
+            })?;
 
             info!(r.log, "creating simnet link '{}'", &slink);
             libnet::create_simnet_link(&slink, libnet::LinkFlags::Active)?;
@@ -1052,9 +1056,13 @@ impl Link {
             let vlink_h = libnet::LinkHandle::Name(vlink.clone());
 
             info!(r.log, "destroying link {}", &vlink);
-            libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)
+            })?;
             info!(r.log, "destroying link {}", &slink);
-            libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&slink_h, libnet::LinkFlags::Active)
+            })?;
         }
 
         Ok(())
@@ -1069,7 +1077,7 @@ impl ExtLink {
 
         // destroy any dangling links
         debug!(r.log, "destroying external link {}", &vnic_name);
-        libnet::delete_link(&vnic, libnet::LinkFlags::Active)?;
+        libnet_retry(|| libnet::delete_link(&vnic, libnet::LinkFlags::Active))?;
 
         // create vnic
         info!(r.log, "creating external link {}", &vnic_name);
@@ -1092,7 +1100,7 @@ impl ExtLink {
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         info!(r.log, "destroying external link {}", &vnic_name);
-        libnet::delete_link(&vnic, libnet::LinkFlags::Active)?;
+        libnet_retry(|| libnet::delete_link(&vnic, libnet::LinkFlags::Active))?;
 
         Ok(())
     }
@@ -1202,4 +1210,17 @@ pub(crate) fn dataset() -> String {
         Ok(s) if !s.is_empty() => s,
         _ => "rpool/falcon".to_string(),
     }
+}
+
+fn libnet_retry<F>(f: F) -> Result<(), Error>
+where
+    F: Fn() -> Result<(), libnet::Error>,
+{
+    for _ in 0..2 {
+        if f().is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Ok(f()?)
 }
