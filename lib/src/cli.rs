@@ -16,7 +16,7 @@ use anyhow::{anyhow, Context};
 use clap::ArgAction;
 use colored::*;
 use futures::{SinkExt, StreamExt};
-use propolis_client::{api::InstanceStateRequested, Client};
+use propolis_client::{types::InstanceStateRequested, Client};
 use ron::de::from_str;
 use slog::{o, warn, Drain, Level, Logger};
 use tabwriter::TabWriter;
@@ -558,12 +558,13 @@ async fn reboot(name: &str) -> Result<(), Error> {
         .parse()?;
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
-    let log = create_logger();
-    let client = Client::new(addr, log.new(o!()));
+    let client = Client::new(&format!("http://{}", addr));
 
     // reboot
     client
-        .instance_state_put(InstanceStateRequested::Reboot)
+        .instance_state_put()
+        .body(InstanceStateRequested::Reboot)
+        .send()
         .await
         .with_context(|| anyhow!("failed to reboot machine"))?;
 

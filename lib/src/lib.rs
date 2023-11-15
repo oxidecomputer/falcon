@@ -1151,16 +1151,13 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client = propolis_client::Client::new(
-        SocketAddr::from_str(sockaddr.as_ref())?,
-        log.clone(),
-    );
+    let client = propolis_client::Client::new(&format!("http://{}", sockaddr));
 
     // https://github.com/rust-lang/rust-clippy/issues/9317
     #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
-    let properties = propolis_client::api::InstanceProperties {
+    let properties = propolis_client::types::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1169,7 +1166,7 @@ pub(crate) async fn launch_vm(
         memory: node.memory,
         vcpus: node.cores,
     };
-    let req = propolis_client::api::InstanceEnsureRequest {
+    let req = propolis_client::types::InstanceEnsureRequest {
         properties,
         nics: Vec::new(),
         disks: Vec::new(),
@@ -1181,7 +1178,7 @@ pub(crate) async fn launch_vm(
     let mut success = false;
     for _ in 0..30 {
         info!(log, "instance ensure: {}", node.name);
-        match client.instance_ensure(&req).await {
+        match client.instance_ensure().body(&req).send().await {
             Ok(_) => {
                 success = true;
                 break;
@@ -1193,13 +1190,15 @@ pub(crate) async fn launch_vm(
         }
     }
     if !success {
-        client.instance_ensure(&req).await?;
+        client.instance_ensure().body(&req).send().await?;
     }
 
     info!(log, "instance run: {}", node.name);
     // run vm instance
     client
-        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
+        .instance_state_put()
+        .body(propolis_client::types::InstanceStateRequested::Run)
+        .send()
         .await?;
 
     Ok(())
