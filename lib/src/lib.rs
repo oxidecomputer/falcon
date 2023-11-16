@@ -1151,7 +1151,13 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client = propolis_client::Client::new(&format!("http://{}", sockaddr));
+    // We use a custom client builder here because the default progenitor
+    // one has a timeout of 15s but we want to be able to wait indefinitely.
+    let reqwest_client = reqwest::ClientBuilder::new().build().unwrap();
+    let client = propolis_client::Client::new_with_client(
+        &format!("http://{}", sockaddr),
+        reqwest_client,
+    );
 
     // https://github.com/rust-lang/rust-clippy/issues/9317
     #[allow(clippy::unnecessary_to_owned)]
@@ -1183,7 +1189,8 @@ pub(crate) async fn launch_vm(
                 success = true;
                 break;
             }
-            Err(_) => {
+            Err(e) => {
+                debug!(log, "instance ensure error: {e}, retry in 1 second");
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
