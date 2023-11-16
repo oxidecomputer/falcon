@@ -1001,9 +1001,13 @@ impl Link {
 
             // if dangling links exists, remove them
             debug!(r.log, "destroying link {}", &vlink);
-            libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)
+            })?;
             debug!(r.log, "destroying link {}", &slink);
-            libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&slink_h, libnet::LinkFlags::Active)
+            })?;
 
             info!(r.log, "creating simnet link '{}'", &slink);
             libnet::create_simnet_link(&slink, libnet::LinkFlags::Active)?;
@@ -1052,9 +1056,13 @@ impl Link {
             let vlink_h = libnet::LinkHandle::Name(vlink.clone());
 
             info!(r.log, "destroying link {}", &vlink);
-            libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&vlink_h, libnet::LinkFlags::Active)
+            })?;
             info!(r.log, "destroying link {}", &slink);
-            libnet::delete_link(&slink_h, libnet::LinkFlags::Active)?;
+            libnet_retry(|| {
+                libnet::delete_link(&slink_h, libnet::LinkFlags::Active)
+            })?;
         }
 
         Ok(())
@@ -1069,7 +1077,7 @@ impl ExtLink {
 
         // destroy any dangling links
         debug!(r.log, "destroying external link {}", &vnic_name);
-        libnet::delete_link(&vnic, libnet::LinkFlags::Active)?;
+        libnet_retry(|| libnet::delete_link(&vnic, libnet::LinkFlags::Active))?;
 
         // create vnic
         info!(r.log, "creating external link {}", &vnic_name);
@@ -1092,7 +1100,7 @@ impl ExtLink {
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         info!(r.log, "destroying external link {}", &vnic_name);
-        libnet::delete_link(&vnic, libnet::LinkFlags::Active)?;
+        libnet_retry(|| libnet::delete_link(&vnic, libnet::LinkFlags::Active))?;
 
         Ok(())
     }
@@ -1143,16 +1151,13 @@ pub(crate) async fn launch_vm(
     let sockaddr = format!("[::1]:{}", port);
 
     // create vm instance
-    let client = propolis_client::Client::new(
-        SocketAddr::from_str(sockaddr.as_ref())?,
-        log.clone(),
-    );
+    let client = propolis_client::Client::new(&format!("http://{}", sockaddr));
 
     // https://github.com/rust-lang/rust-clippy/issues/9317
     #[allow(clippy::unnecessary_to_owned)]
     fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
 
-    let properties = propolis_client::api::InstanceProperties {
+    let properties = propolis_client::types::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1161,7 +1166,7 @@ pub(crate) async fn launch_vm(
         memory: node.memory,
         vcpus: node.cores,
     };
-    let req = propolis_client::api::InstanceEnsureRequest {
+    let req = propolis_client::types::InstanceEnsureRequest {
         properties,
         nics: Vec::new(),
         disks: Vec::new(),
@@ -1173,7 +1178,7 @@ pub(crate) async fn launch_vm(
     let mut success = false;
     for _ in 0..30 {
         info!(log, "instance ensure: {}", node.name);
-        match client.instance_ensure(&req).await {
+        match client.instance_ensure().body(&req).send().await {
             Ok(_) => {
                 success = true;
                 break;
@@ -1185,13 +1190,15 @@ pub(crate) async fn launch_vm(
         }
     }
     if !success {
-        client.instance_ensure(&req).await?;
+        client.instance_ensure().body(&req).send().await?;
     }
 
     info!(log, "instance run: {}", node.name);
     // run vm instance
     client
-        .instance_state_put(propolis_client::api::InstanceStateRequested::Run)
+        .instance_state_put()
+        .body(propolis_client::types::InstanceStateRequested::Run)
+        .send()
         .await?;
 
     Ok(())
@@ -1202,4 +1209,17 @@ pub(crate) fn dataset() -> String {
         Ok(s) if !s.is_empty() => s,
         _ => "rpool/falcon".to_string(),
     }
+}
+
+fn libnet_retry<F>(f: F) -> Result<(), Error>
+where
+    F: Fn() -> Result<(), libnet::Error>,
+{
+    for _ in 0..2 {
+        if f().is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Ok(f()?)
 }
