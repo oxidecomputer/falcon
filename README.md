@@ -48,11 +48,12 @@ use libfalcon::{cli::run, error::Error, Runner, unit::gb};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+
     let mut d = Runner::new("duo");
 
-    // nodes, each with 2 cores and 2G of memory
-    let violin = d.node("violin", "helios-1.3", 2, gb(2));
-    let piano = d.node("piano", "helios-1.3", 2, gb(2));
+    // nodes
+    let violin = d.node("violin", "helios-2.0", 4, gb(4));
+    let piano = d.node("piano", "helios-2.0", 4, gb(4));
 
     // links
     d.link(violin, piano);
