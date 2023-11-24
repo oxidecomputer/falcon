@@ -26,6 +26,7 @@ pub enum State {
 pub struct SerialCommander {
     pub addr: SocketAddr,
     pub instance: String,
+    pub name: String,
     pub state: State,
     log: Logger,
 }
@@ -36,11 +37,13 @@ impl SerialCommander {
     pub fn new(
         addr: SocketAddr,
         instance: String,
+        name: String,
         log: Logger,
     ) -> SerialCommander {
         SerialCommander {
             addr,
             instance,
+            name,
             log,
             state: State::Empty,
         }
@@ -52,13 +55,13 @@ impl SerialCommander {
         self.state = State::Connecting;
         let path = format!("ws://{}/instance/serial", self.addr);
 
-        debug!(self.log, "sc: connecting to {}", path);
+        debug!(self.log, "[sc] {}: connecting to {}", self.name, path);
 
         for _ in 0..30 {
             match connect_async(path.clone()).await {
                 Ok((ws, _)) => return Ok(ws),
                 Err(e) => {
-                    warn!(self.log, "{}", e);
+                    warn!(self.log, "[sc] {}: {}", self.name, e);
                     sleep(Duration::from_secs(1)).await;
                     continue;
                 }
@@ -71,11 +74,12 @@ impl SerialCommander {
 
     pub async fn start(
         &mut self,
+        coax_prompt: bool,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
-        debug!(self.log, "sc: starting");
+        debug!(self.log, "[sc] {}: starting", self.name);
 
         let mut ws = self.connect().await?;
-        self.wait_for_prompt(&mut ws).await?;
+        self.wait_for_prompt(&mut ws, coax_prompt).await?;
         self.login(&mut ws).await?;
 
         Ok(ws)
@@ -84,14 +88,19 @@ impl SerialCommander {
     async fn wait_for_prompt(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        coax_prompt: bool,
     ) -> Result<(), Error> {
-        debug!(self.log, "sc: waiting for prompt");
+        debug!(self.log, "[sc] {} waiting for prompt", self.name);
 
         // TODO hardcode
         let prompt = b"login:";
         let mut i = 0;
 
         loop {
+            if coax_prompt {
+                let v = vec![0x0du8, 0x0du8]; //<enter><enter>
+                ws.send(Message::binary(v)).await?;
+            }
             match ws.next().await {
                 Some(Ok(Message::Binary(input))) => {
                     // look for login prompt, possibly across messsages
@@ -99,7 +108,10 @@ impl SerialCommander {
                         if x == prompt[i] {
                             i += 1;
                             if i == prompt.len() {
-                                debug!(self.log, "sc: prompt detected",);
+                                debug!(
+                                    self.log,
+                                    "[sc] {} prompt detected", self.name
+                                );
                                 return Ok(());
                             }
                         } else {
@@ -119,7 +131,7 @@ impl SerialCommander {
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     ) -> Result<(), Error> {
-        debug!(self.log, "sc: logging in");
+        debug!(self.log, "[sc] {}: logging in", self.name);
 
         //TODO hardcode
         let mut v = Vec::from(b"root".as_slice());
@@ -168,7 +180,10 @@ impl SerialCommander {
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         command: String,
     ) -> Result<String, Error> {
-        debug!(self.log, "sc: executing command `{}`", command);
+        debug!(
+            self.log,
+            "[sc] {}: executing command `{}`", self.name, command
+        );
 
         let cmd = command.to_string();
 
@@ -197,7 +212,7 @@ impl SerialCommander {
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         detector: &[u8],
     ) -> Result<String, Error> {
-        trace!(self.log, "sc: draining stream");
+        trace!(self.log, "[sc] {}: draining stream", self.name);
 
         let mut result = "".to_string();
         let mut i = 0;
@@ -213,8 +228,16 @@ impl SerialCommander {
                                     String::from_utf8_lossy(data.as_slice())
                                         .to_string();
                                 result += &s;
-                                debug!(self.log, "sc: detector detected");
-                                trace!(self.log, "drained: `{}`", &result);
+                                debug!(
+                                    self.log,
+                                    "[sc] {}: detector detected", self.name
+                                );
+                                trace!(
+                                    self.log,
+                                    "[sc] {}: drained: `{}`",
+                                    self.name,
+                                    &result
+                                );
                                 self.drain(ws, 500).await?;
                                 return Ok(result);
                             }
@@ -225,24 +248,29 @@ impl SerialCommander {
                     let s =
                         String::from_utf8_lossy(data.as_slice()).to_string();
                     result += &s;
-                    trace!(self.log, "partial result `{}`", &result);
+                    trace!(
+                        self.log,
+                        "[sc] {}: partial result `{}`",
+                        self.name,
+                        &result
+                    );
                 }
                 Some(Ok(Message::Close(..))) => {
-                    trace!(self.log, "breaking on close");
+                    trace!(self.log, "[sc] {}: breaking on close", self.name);
                     break;
                 }
                 None => {
-                    trace!(self.log, "breaking on none");
+                    trace!(self.log, "[sc] {}: breaking on none", self.name);
                     break;
                 }
                 _ => {
-                    trace!(self.log, "breaking on _");
+                    trace!(self.log, "[sc] {}: breaking on _", self.name);
                     break;
                 }
             }
         }
 
-        trace!(self.log, "drained: `{}`", &result);
+        trace!(self.log, "[sc] {}: drained: `{}`", self.name, &result);
 
         Ok(result.to_string())
     }
@@ -252,7 +280,7 @@ impl SerialCommander {
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         wait: u64,
     ) -> Result<String, Error> {
-        trace!(self.log, "sc: draining stream");
+        trace!(self.log, "[sc] {}: draining stream", self.name);
 
         let mut result = "".to_string();
 
@@ -265,26 +293,34 @@ impl SerialCommander {
                         result += &s;
                     }
                     Some(Ok(Message::Close(..))) => {
-                        trace!(self.log, "breaking on close");
+                        trace!(
+                            self.log,
+                            "[sc] {}: breaking on close",
+                            self.name
+                        );
                         break;
                     }
                     None => {
-                        trace!(self.log, "breaking on none");
+                        trace!(
+                            self.log,
+                            "[sc] {}: breaking on none",
+                            self.name
+                        );
                         break;
                     }
                     _ => {
-                        trace!(self.log, "breaking on _");
+                        trace!(self.log, "[sc] {}: breaking on _", self.name);
                         break;
                     }
                 },
                 Err(_) => {
-                    trace!(self.log, "breaking on timeout");
+                    trace!(self.log, "[sc] {}: breaking on timeout", self.name);
                     break;
                 }
             }
         }
 
-        trace!(self.log, "drained: `{}`", &result);
+        trace!(self.log, "[sc] {}: drained: `{}`", self.name, &result);
 
         Ok(result)
     }
