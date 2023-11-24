@@ -48,7 +48,7 @@ pub struct Runner {
     /// The propolis-server binary to use
     pub propolis_binary: String,
 
-    log: Logger,
+    pub log: Logger,
 
     /// The root dataset to use for falcon activities
     pub dataset: String,
@@ -573,10 +573,13 @@ impl Runner {
             port,
         );
 
-        let mut sc = serial::SerialCommander::new(addr, id, self.log.clone());
-        let mut ws = sc.connect().await?;
-
-        sc.login(&mut ws).await?;
+        let mut sc = serial::SerialCommander::new(
+            addr,
+            id,
+            name.into(),
+            self.log.clone(),
+        );
+        let mut ws = sc.start(true).await?;
         let out = sc.exec(&mut ws, cmd.to_string()).await?;
         sc.logout(&mut ws).await?;
         Ok(out)
@@ -900,14 +903,15 @@ impl Node {
         let mut sc = serial::SerialCommander::new(
             SocketAddr::from_str(ws_sockaddr.as_ref())?,
             id.to_string(),
+            self.name.clone(),
             r.log.clone(),
         );
-        let mut ws = sc.start().await?;
+        let mut ws = sc.start(false).await?;
 
         // setup mounts
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
-            info!(r.log, "mouting {}", mount.destination);
+            info!(r.log, "{}: mounting {}", self.name, mount.destination);
             let cmd = format!(
                 "mkdir -p {dst}; cd {dst}; p9kp pull",
                 dst = mount.destination
@@ -1222,7 +1226,7 @@ fn libnet_retry<F>(f: F) -> Result<(), Error>
 where
     F: Fn() -> Result<(), libnet::Error>,
 {
-    for _ in 0..2 {
+    for _ in 0..30 {
         if f().is_ok() {
             return Ok(());
         }
