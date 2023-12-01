@@ -37,6 +37,28 @@ macro_rules! node {
     };
 }
 
+#[macro_export]
+macro_rules! cmd {
+    ($d:expr, $node:expr, $cmd:expr, $msg:expr) => {{
+        let bx: std::pin::Pin<
+            Box<
+                dyn futures::future::Future<
+                    Output = Result<String, anyhow::Error>,
+                >,
+            >,
+        > = Box::pin(async {
+            info!($d.log, "{} start", $msg);
+            let result = $d
+                .exec($node, $cmd)
+                .await
+                .map_err(|e| anyhow!("{} {e}", $msg));
+            info!($d.log, "{} finish", $msg);
+            result
+        });
+        bx
+    }};
+}
+
 pub struct Runner {
     /// The deployment object that describes the Falcon topology
     pub deployment: Deployment,
@@ -106,6 +128,12 @@ pub struct Node {
     pub do_setup: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum GuestMountMechanism {
+    P9kp,
+    Mount,
+}
+
 /// Directories mounted from host machine into a node.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Mount {
@@ -114,6 +142,9 @@ pub struct Mount {
 
     /// Directory in node to mount to.
     pub destination: Utf8PathBuf,
+
+    /// Mechanism to mount in the guest.
+    pub mechanism: GuestMountMechanism,
 }
 
 /// Node references are passed back to clients when nodes are created. These are
@@ -404,11 +435,12 @@ impl Runner {
 
     /// Provide the host folder `src` as a p9fs mount to the guest with the tag
     /// `dst`.
-    pub fn mount(
+    pub fn do_mount(
         &mut self,
         src: impl AsRef<Utf8Path>,
         dst: impl AsRef<Utf8Path>,
         n: NodeRef,
+        mechanism: GuestMountMechanism,
     ) -> Result<(), Error> {
         let src = src.as_ref();
         let src = src.canonicalize_utf8().map_err(|error| {
@@ -421,9 +453,28 @@ impl Runner {
         self.deployment.nodes[n.index].mounts.push(Mount {
             source: src,
             destination: dst.as_ref().to_owned(),
+            mechanism,
         });
 
         Ok(())
+    }
+
+    pub fn mount(
+        &mut self,
+        src: impl AsRef<Utf8Path>,
+        dst: impl AsRef<Utf8Path>,
+        n: NodeRef,
+    ) -> Result<(), Error> {
+        self.do_mount(src, dst, n, GuestMountMechanism::P9kp)
+    }
+
+    pub fn mount_linux(
+        &mut self,
+        src: impl AsRef<Utf8Path>,
+        dst: impl AsRef<Utf8Path>,
+        n: NodeRef,
+    ) -> Result<(), Error> {
+        self.do_mount(src, dst, n, GuestMountMechanism::Mount)
     }
 
     /// Launch the deployment. This will clone the necessary image zvols, create
@@ -912,10 +963,17 @@ impl Node {
         // TODO this will only work as expected for one mount.
         for mount in &self.mounts {
             info!(r.log, "{}: mounting {}", self.name, mount.destination);
-            let cmd = format!(
-                "mkdir -p {dst}; cd {dst}; p9kp pull",
-                dst = mount.destination
-            );
+            let cmd = if mount.mechanism == GuestMountMechanism::Mount {
+                format!(
+                    "mount -t 9p -o ro,msize=65536 {dst} {dst}",
+                    dst = mount.destination
+                )
+            } else {
+                format!(
+                    "mkdir -p {dst}; cd {dst}; p9kp pull",
+                    dst = mount.destination
+                )
+            };
             sc.exec(&mut ws, cmd).await?;
             sc.exec(&mut ws, "cd".into()).await?;
         }
