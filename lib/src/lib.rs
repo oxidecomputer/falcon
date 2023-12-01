@@ -965,7 +965,7 @@ impl Node {
             info!(r.log, "{}: mounting {}", self.name, mount.destination);
             let cmd = if mount.mechanism == GuestMountMechanism::Mount {
                 format!(
-                    "mount -t 9p -o ro,msize=65536 {dst} {dst}",
+                    "mkdir -p {dst}; mount -t 9p -o ro,msize=65536 {dst} {dst}",
                     dst = mount.destination
                 )
             } else {
