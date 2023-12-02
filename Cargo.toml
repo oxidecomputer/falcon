@@ -22,7 +22,6 @@ zone = "0.1.8"
 regex = "1.5"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
-fs2 = { git = "https://github.com/pfmooney/fs2-rs", branch = "illumos-target" }
 uuid = { version = "1.0.0", features = [ "serde", "v4" ] }
 serde = "1.0"
 ron = "0.7"
