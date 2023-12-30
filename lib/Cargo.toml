@@ -33,3 +33,4 @@ rand.workspace = true
 portpicker.workspace = true
 camino.workspace = true
 reqwest.workspace = true
+anstyle = "1.0.4"

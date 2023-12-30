@@ -35,7 +35,7 @@ pub enum RunMode {
 
 #[derive(Parser)]
 #[clap(version = "0.1")]
-#[clap(infer_subcommands = true)]
+#[clap(infer_subcommands = true, styles = oxide_cli_style())]
 struct Opts {
     #[clap(short, long, action = ArgAction::Count)]
     verbose: u8,
@@ -68,6 +68,8 @@ enum SubCommand {
     Netdestroy(CmdNetDestroy),
     #[clap(about = "snapshot a node")]
     Snapshot(CmdSnapshot),
+    #[clap(about = "execute a command on a node")]
+    Exec(CmdExec),
 }
 
 #[derive(Parser)]
@@ -147,6 +149,13 @@ struct CmdSnapshot {
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdInfo {}
+
+#[derive(Parser)]
+#[clap(infer_subcommands = true)]
+struct CmdExec {
+    node: String,
+    command: String,
+}
 
 /// Entry point for a command line application. Will parse command line
 /// arguments and take actions accordingly.
@@ -246,6 +255,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
         }
         SubCommand::Snapshot(s) => {
             snapshot(s)?;
+            Ok(RunMode::Unspec)
+        }
+        SubCommand::Exec(ref c) => {
+            exec(r, &c.node, &c.command).await?;
             Ok(RunMode::Unspec)
         }
     }
@@ -651,4 +664,31 @@ async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
     crate::launch_vm(&log, &propolis_binary, port, vnc_port, &id, node).await?;
 
     Ok(())
+}
+
+async fn exec(r: &Runner, node: &str, command: &str) -> Result<(), Error> {
+    println!("{}", r.do_exec(node, command).await?);
+    Ok(())
+}
+
+pub fn oxide_cli_style() -> clap::builder::Styles {
+    clap::builder::Styles::styled()
+        .header(anstyle::Style::new().bold().underline().fg_color(Some(
+            anstyle::Color::Rgb(anstyle::RgbColor(245, 207, 101)),
+        )))
+        .literal(anstyle::Style::new().bold().fg_color(Some(
+            anstyle::Color::Rgb(anstyle::RgbColor(72, 213, 151)),
+        )))
+        .invalid(anstyle::Style::new().bold().fg_color(Some(
+            anstyle::Color::Rgb(anstyle::RgbColor(72, 213, 151)),
+        )))
+        .valid(anstyle::Style::new().bold().fg_color(Some(
+            anstyle::Color::Rgb(anstyle::RgbColor(72, 213, 151)),
+        )))
+        .usage(anstyle::Style::new().bold().fg_color(Some(
+            anstyle::Color::Rgb(anstyle::RgbColor(245, 207, 101)),
+        )))
+        .error(anstyle::Style::new().bold().fg_color(Some(
+            anstyle::Color::Rgb(anstyle::RgbColor(232, 104, 134)),
+        )))
 }
