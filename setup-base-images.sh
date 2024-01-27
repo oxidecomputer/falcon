@@ -17,6 +17,10 @@ pushd .img
 
 for img in $images; do
     file=$img.raw.xz
+    if [[ $FORCE == 1 ]]; then
+        rm -f $file
+        rm -rf $img.raw
+    fi
     if [[ ! -f $file ]]; then
         echo "Pulling $file"
         echo "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/$file"
@@ -28,10 +32,15 @@ for img in $images; do
     fi
     file=$img.raw
 
+
     name=${img%_*}
+    if [[ $FORCE == 1 ]]; then
+        echo "Deleting $name image"
+        pfexec zfs destroy -r $dataset/img/$name
+    fi
     if [[ ! -b /dev/zvol/dsk/$dataset/img/$name ]]; then
         echo "Creating ZFS volume $name"
-        pfexec zfs create -p -V 20G -o volblocksize=4k "$dataset/img/$name"
+        pfexec zfs create -p -V 100G -o volblocksize=4k "$dataset/img/$name"
         echo "Copying contents of image into volume"
         pfexec dd if=$img.raw of="/dev/zvol/rdsk/$dataset/img/$name" bs=1024k status=progress
         echo "Creating base image snapshot"
