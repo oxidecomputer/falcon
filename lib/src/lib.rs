@@ -126,6 +126,8 @@ pub struct Node {
     pub dataset: String,
     /// Whether or not to do initial setup on the node
     pub do_setup: bool,
+    /// How much space to reserve on the boot disk in GB.
+    pub reserved: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -275,6 +277,7 @@ impl Runner {
             cores,
             memory,
             do_setup: true,
+            reserved: 20,
         };
         self.deployment.nodes.push(n);
         r
@@ -417,6 +420,10 @@ impl Runner {
         self.deployment.nodes[node1.index].radix += 1;
         self.deployment.nodes[node2.index].radix += 1;
         r
+    }
+
+    pub fn reserve(&mut self, n: NodeRef, gb: usize) {
+        self.deployment.nodes[n.index].reserved = gb;
     }
 
     /// Create an external link attached to `host_ifx`.
@@ -695,6 +702,26 @@ impl Node {
 
         let out = Command::new("zfs")
             .args(["clone", "-p", source.as_ref(), dest.as_ref()])
+            .output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
+        }
+
+        let volsize = format!("volsize={}G", self.reserved);
+
+        let out = Command::new("zfs")
+            .args(["set", volsize.as_str(), dest.as_ref()])
+            .output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
+        }
+
+        let reserved = format!("reservation={}G", self.reserved);
+
+        let out = Command::new("zfs")
+            .args(["set", reserved.as_str(), dest.as_ref()])
             .output()?;
 
         if !out.status.success() {

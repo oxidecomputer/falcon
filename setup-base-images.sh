@@ -40,7 +40,9 @@ for img in $images; do
     fi
     if [[ ! -b /dev/zvol/dsk/$dataset/img/$name ]]; then
         echo "Creating ZFS volume $name"
-        pfexec zfs create -p -V 100G -o volblocksize=4k "$dataset/img/$name"
+        fsize=`stat --format "%s" $img.raw`
+        let vsize=(fsize + 4096 - size%4096)
+        pfexec zfs create -p -V $vsize -o volblocksize=4k "$dataset/img/$name"
         echo "Copying contents of image into volume"
         pfexec dd if=$img.raw of="/dev/zvol/rdsk/$dataset/img/$name" bs=1024k status=progress
         echo "Creating base image snapshot"
