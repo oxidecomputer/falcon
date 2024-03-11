@@ -10,7 +10,7 @@ use libfalcon::{cli::run, error::Error, unit::gb, Runner};
 async fn main() -> Result<(), Error> {
     let mut d = Runner::new("solo");
 
-    d.node("violin", "netstack-1.5", 2, gb(2));
+    d.node("violin", "helios-2.0", 2, gb(2));
     run(&mut d).await?;
     Ok(())
 }
