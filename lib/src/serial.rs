@@ -219,7 +219,9 @@ impl SerialCommander {
 
         loop {
             match ws.next().await {
-                Some(Ok(Message::Binary(data))) => {
+                Some(Ok(Message::Binary(mut data))) => {
+                    // remove all control characters
+                    data.retain(|x| *x > 31);
                     for x in &data {
                         if *x == detector[i] {
                             i += 1;
@@ -248,6 +250,20 @@ impl SerialCommander {
                     let s =
                         String::from_utf8_lossy(data.as_slice()).to_string();
                     result += &s;
+                    if result.len() >= detector.len() {
+                        debug!(
+                            self.log,
+                            "[sc] {}: detector eclipsed", self.name
+                        );
+                        trace!(
+                            self.log,
+                            "[sc] {}: drained: `{}`",
+                            self.name,
+                            &result
+                        );
+                        self.drain(ws, 500).await?;
+                        return Ok(result);
+                    }
                     trace!(
                         self.log,
                         "[sc] {}: partial result `{}`",
