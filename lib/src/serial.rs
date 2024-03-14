@@ -44,9 +44,12 @@ impl SerialCommander {
         name: String,
         log: Logger,
     ) -> SerialCommander {
-        let prompt_regex = Regex::new(&format!("root@{name}:.+# ")).unwrap();
+        let prompt_regex =
+            //Regex::new(&format!("root@(?:{name}|unknown): # ")).unwrap();
+            Regex::new("root@.+:.*# ").unwrap();
         let login_prompt_regex =
-            Regex::new(&format!("{name} console login: ")).unwrap();
+           // Regex::new(&format!("(?:{name}|unknown) console login: ")).unwrap();
+           Regex::new(".+ console login: ").unwrap();
         SerialCommander {
             addr,
             instance,
@@ -101,21 +104,13 @@ impl SerialCommander {
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {} waiting for prompt", self.name);
 
-        let timeout = Some(10);
-        loop {
-            if coax_prompt {
-                let v = vec![ENTER, ENTER];
-                ws.send(Message::binary(v)).await?;
-            }
-            if self
-                .drain_match(ws, timeout, self.login_prompt_regex.clone())
-                .await
-                .is_ok()
-            {
-                break;
-            }
+        let timeout = Some(60000);
+        if coax_prompt {
+            let v = vec![ENTER, ENTER];
+            ws.send(Message::binary(v)).await?;
         }
-
+        self.drain_match(ws, timeout, self.login_prompt_regex.clone())
+            .await?;
         Ok(())
     }
 
@@ -251,7 +246,10 @@ impl SerialCommander {
                             "[sc] {}: breaking on close",
                             self.name
                         );
-                        break;
+                        return Err(Error::Exec(format!(
+                            "[sc] {}: websocket closed",
+                            self.name
+                        )));
                     }
                     None => {
                         trace!(
@@ -259,16 +257,25 @@ impl SerialCommander {
                             "[sc] {}: breaking on none",
                             self.name
                         );
-                        break;
+                        return Err(Error::Exec(format!(
+                            "[sc] {}: stream returned no data",
+                            self.name
+                        )));
                     }
                     _ => {
                         trace!(self.log, "[sc] {}: breaking on _", self.name);
-                        break;
+                        return Err(Error::Exec(format!(
+                            "[sc] {}: Unexpected websocket message",
+                            self.name
+                        )));
                     }
                 },
                 Err(_) => {
                     trace!(self.log, "[sc] {}: breaking on timeout", self.name);
-                    break;
+                    return Err(Error::Exec(format!(
+                        "[sc] {}: timeout waiting for data",
+                        self.name
+                    )));
                 }
             }
         }
