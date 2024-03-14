@@ -36,7 +36,7 @@ for img in $images; do
     name=${img%_*}
     if [[ $FORCE == 1 ]]; then
         echo "Deleting $name image"
-        pfexec zfs destroy -r $dataset/img/$name
+        pfexec zfs destroy -r $dataset/img/$name || true
     fi
     if [[ ! -b /dev/zvol/dsk/$dataset/img/$name ]]; then
         echo "Creating ZFS volume $name"
