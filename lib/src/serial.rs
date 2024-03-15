@@ -44,12 +44,8 @@ impl SerialCommander {
         name: String,
         log: Logger,
     ) -> SerialCommander {
-        let prompt_regex =
-            //Regex::new(&format!("root@(?:{name}|unknown): # ")).unwrap();
-            Regex::new("root@.+:.*# ").unwrap();
-        let login_prompt_regex =
-           // Regex::new(&format!("(?:{name}|unknown) console login: ")).unwrap();
-           Regex::new(".+ console login: ").unwrap();
+        let prompt_regex = Regex::new("root@.+:.*# ").unwrap();
+        let login_prompt_regex = Regex::new(".+ console login: ").unwrap();
         SerialCommander {
             addr,
             instance,
@@ -104,7 +100,7 @@ impl SerialCommander {
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {} waiting for prompt", self.name);
 
-        let timeout = Some(60000);
+        let timeout = None;
         if coax_prompt {
             let v = vec![ENTER, ENTER];
             ws.send(Message::binary(v)).await?;
@@ -120,7 +116,7 @@ impl SerialCommander {
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {}: logging in", self.name);
 
-        let timeout = Some(1000);
+        let timeout = Some(10000);
 
         // Send username and wait for password prompt
         let mut v = Vec::from(USERNAME);
@@ -149,7 +145,7 @@ impl SerialCommander {
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     ) -> Result<(), Error> {
-        let timeout = Some(1000);
+        let timeout = Some(5000);
         let mut v = Vec::from(b"logout".as_slice());
         v.push(ENTER);
         ws.send(Message::binary(v)).await?;
@@ -182,8 +178,8 @@ impl SerialCommander {
         let mut stripped = String::new();
         let mut prev = None;
         for line in lines {
-            if prev.is_some() {
-                stripped.push_str(prev.unwrap());
+            if let Some(prev) = prev {
+                stripped.push_str(prev);
                 stripped.push('\n');
             }
             prev = Some(line);
