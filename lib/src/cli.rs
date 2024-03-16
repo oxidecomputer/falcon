@@ -406,6 +406,12 @@ fn destroy(r: &Runner) {
 }
 
 async fn console(name: &str) -> Result<(), Error> {
+    println!(
+        "{}\n{}\n{}",
+        "Entering VM console.".blue(),
+        "Use ^q to exit.".bright_blue(),
+        "Press enter to continue.".bright_blue()
+    );
     let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
         .trim_end()
         .parse()?;
