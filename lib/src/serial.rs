@@ -45,7 +45,7 @@ impl SerialCommander {
         log: Logger,
     ) -> SerialCommander {
         let prompt_regex = Regex::new("root@.+:.*# ").unwrap();
-        let login_prompt_regex = Regex::new(".+ console login: ").unwrap();
+        let login_prompt_regex = Regex::new(".+ login: ").unwrap();
         SerialCommander {
             addr,
             instance,
