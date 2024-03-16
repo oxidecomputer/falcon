@@ -189,9 +189,11 @@ impl SerialCommander {
 
         let v = Vec::from(cmd.as_bytes());
         ws.send(Message::binary(v)).await?;
-        self.drain_detector(ws, cmd.as_bytes()).await?;
+        self.drain_detector(ws, cmd.as_bytes(), true).await?;
         ws.send(Message::binary(vec![0x0du8])).await?; //<enter>
-        let s = self.drain_detector(ws, EOC_DETECTOR.as_bytes()).await?;
+        let s = self
+            .drain_detector(ws, EOC_DETECTOR.as_bytes(), false)
+            .await?;
         // remove paste mode terminal characters if present
         let s = s.replace("\u{1b}[?2004l", "");
         let s = s.replace("\u{1b}[?2004h", "");
@@ -211,6 +213,7 @@ impl SerialCommander {
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         detector: &[u8],
+        allow_eclipse: bool,
     ) -> Result<String, Error> {
         trace!(self.log, "[sc] {}: draining stream", self.name);
 
@@ -250,7 +253,7 @@ impl SerialCommander {
                     let s =
                         String::from_utf8_lossy(data.as_slice()).to_string();
                     result += &s;
-                    if result.len() >= detector.len() {
+                    if result.len() >= detector.len() && allow_eclipse {
                         debug!(
                             self.log,
                             "[sc] {}: detector eclipsed", self.name
