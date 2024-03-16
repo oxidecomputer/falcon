@@ -16,7 +16,8 @@ pub mod unit;
 use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
-use propolis_server_config::BlockOpts;
+use propolis_client::types::InstanceMetadata;
+use propolis_server_config::{BlockDevice, BlockOpts, Device};
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
@@ -105,6 +106,14 @@ impl Default for Deployment {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub enum PrimaryDiskBacking {
+    /// Use a zvol cloned from the image source.
+    Zvol,
+    /// Use a file copied from the image source.
+    File,
+}
+
 /// A node in a falcon network.
 #[derive(Serialize, Deserialize)]
 pub struct Node {
@@ -128,6 +137,8 @@ pub struct Node {
     pub do_setup: bool,
     /// How much space to reserve on the boot disk in GB.
     pub reserved: usize,
+    /// How to create the backing of the main disk.
+    pub primary_disk_backing: PrimaryDiskBacking,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -278,6 +289,7 @@ impl Runner {
             memory,
             do_setup: true,
             reserved: 20,
+            primary_disk_backing: PrimaryDiskBacking::Zvol,
         };
         self.deployment.nodes.push(n);
         r
@@ -424,6 +436,10 @@ impl Runner {
 
     pub fn reserve(&mut self, n: NodeRef, gb: usize) {
         self.deployment.nodes[n.index].reserved = gb;
+    }
+
+    pub fn set_backing(&mut self, n: NodeRef, backing: PrimaryDiskBacking) {
+        self.deployment.nodes[n.index].primary_disk_backing = backing
     }
 
     /// Create an external link attached to `host_ifx`.
@@ -587,9 +603,17 @@ impl Runner {
 
         // Destroy images
         info!(self.log, "destroying images");
-        let img = format!("{}/topo/{}", self.dataset, self.deployment.name);
+
+        // destroy any zvol backed images
+        let img_dir = format!("{}/topo/{}", self.dataset, self.deployment.name);
         Command::new("zfs")
-            .args(["destroy", "-r", img.as_ref()])
+            .args(["destroy", "-r", img_dir.as_ref()])
+            .output()?;
+
+        // destroy any file backed images
+        let img_dir = format!("/var/falcon/dsk/{}", self.deployment.name);
+        Command::new("rm")
+            .args(["-rf", img_dir.as_ref()])
             .output()?;
 
         // Destroy workspace
@@ -691,85 +715,14 @@ impl Drop for Runner {
 
 impl Node {
     fn preflight(&self, r: &Runner) -> Result<(), Error> {
-        //Clone base image
-
-        //TODO incorporate version into img
-        let source = format!("{}/img/{}@base", self.dataset, self.image);
-        let dest = format!(
-            "{}/topo/{}/{}",
-            self.dataset, r.deployment.name, self.name
-        );
-
-        let out = Command::new("zfs")
-            .args(["clone", "-p", source.as_ref(), dest.as_ref()])
-            .output()?;
-
-        if !out.status.success() {
-            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
-        }
-
-        let volsize = format!("volsize={}G", self.reserved);
-
-        let out = Command::new("zfs")
-            .args(["set", volsize.as_str(), dest.as_ref()])
-            .output()?;
-
-        if !out.status.success() {
-            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
-        }
-
-        let reserved = format!("reservation={}G", self.reserved);
-
-        let out = Command::new("zfs")
-            .args(["set", reserved.as_str(), dest.as_ref()])
-            .output()?;
-
-        if !out.status.success() {
-            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
-        }
-
-        // create propolis config
-
         let mut devices = BTreeMap::new();
-        let mut device_options = BTreeMap::new();
-
         let mut block_devs = BTreeMap::new();
-        let mut blockdev_options = BTreeMap::new();
 
-        // main disk
-
-        let zvol = format!(
-            "/dev/zvol/rdsk/{}/topo/{}/{}",
-            self.dataset, r.deployment.name, self.name,
-        );
-        device_options.insert(
-            "block_dev".to_string(),
-            toml::Value::String("main_disk".to_string()),
-        );
-        device_options.insert(
-            "pci-path".to_string(),
-            toml::Value::String("0.4.0".to_string()),
-        );
-        devices.insert(
-            "block0".to_string(),
-            propolis_server_config::Device {
-                driver: "pci-virtio-block".to_string(),
-                options: device_options,
-            },
-        );
-        blockdev_options.insert("path".to_string(), toml::Value::String(zvol));
-        block_devs.insert(
-            "main_disk".to_string(),
-            propolis_server_config::BlockDevice {
-                bdtype: "file".to_string(),
-                options: blockdev_options,
-                opts: BlockOpts {
-                    block_size: None,
-                    read_only: None,
-                    skip_flush: Some(true),
-                },
-            },
-        );
+        let backing = match self.primary_disk_backing {
+            PrimaryDiskBacking::Zvol => self.create_zvol_backing(r)?,
+            PrimaryDiskBacking::File => self.create_file_backing(r)?,
+        };
+        self.create_blockdev(backing, &mut devices, &mut block_devs);
 
         let mut pci_index = 5;
 
@@ -955,6 +908,131 @@ impl Node {
         fs::write(format!(".falcon/{}.toml", self.name), config_toml)?;
 
         Ok(())
+    }
+
+    fn create_zvol_backing(&self, r: &Runner) -> Result<String, Error> {
+        //Clone base image
+
+        //TODO incorporate version into img
+        let source = format!("{}/img/{}@base", self.dataset, self.image);
+        let dest = format!(
+            "{}/topo/{}/{}",
+            self.dataset, r.deployment.name, self.name
+        );
+
+        let out = Command::new("zfs")
+            .args(["clone", "-p", source.as_ref(), dest.as_ref()])
+            .output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
+        }
+
+        let volsize = format!("volsize={}G", self.reserved);
+
+        let out = Command::new("zfs")
+            .args(["set", volsize.as_str(), dest.as_ref()])
+            .output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
+        }
+
+        let reserved = format!("reservation={}G", self.reserved);
+
+        let out = Command::new("zfs")
+            .args(["set", reserved.as_str(), dest.as_ref()])
+            .output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
+        }
+
+        let out = Command::new("zfs")
+            .args(["set", "sync=disabled", dest.as_ref()])
+            .output()?;
+
+        if !out.status.success() {
+            return Err(Error::Zfs(String::from_utf8(out.stderr)?));
+        }
+
+        let zvol = format!(
+            "/dev/zvol/rdsk/{}/topo/{}/{}",
+            self.dataset, r.deployment.name, self.name,
+        );
+
+        Ok(zvol)
+    }
+
+    fn create_file_backing(&self, r: &Runner) -> Result<String, Error> {
+        let size = format!("{}G", self.reserved);
+
+        let dir = format!("/var/falcon/dsk/{}", r.deployment.name);
+        if let Err(e) = fs::create_dir_all(&dir) {
+            error!(r.log, "failed to create image directory: {e}");
+            return Err(Error::IO(e));
+        }
+        let backing = format!("{}/{}", dir, self.name);
+        let source_zvol =
+            format!("/dev/zvol/dsk/{}/img/{}@base", self.dataset, self.image);
+
+        info!(r.log, "copying backing image for {}", self.name);
+        let dd_if = format!("if={source_zvol}");
+        let dd_of = format!("of={backing}");
+        let out = Command::new("dd")
+            .args([dd_if.as_str(), dd_of.as_str(), "bs=1024M"])
+            .output()?;
+        if !out.status.success() {
+            return Err(Error::Exec(String::from_utf8(out.stderr)?));
+        }
+
+        let out = Command::new("truncate")
+            .args(["-s", size.as_str(), backing.as_str()])
+            .output()?;
+        if !out.status.success() {
+            return Err(Error::Exec(String::from_utf8(out.stderr)?));
+        }
+
+        Ok(backing)
+    }
+
+    fn create_blockdev(
+        &self,
+        backing: String,
+        devices: &mut BTreeMap<String, Device>,
+        block_devs: &mut BTreeMap<String, BlockDevice>,
+    ) {
+        let mut device_options = BTreeMap::new();
+        let mut blockdev_options = BTreeMap::new();
+        device_options.insert(
+            "block_dev".to_string(),
+            toml::Value::String("main_disk".to_string()),
+        );
+        device_options.insert(
+            "pci-path".to_string(),
+            toml::Value::String("0.4.0".to_string()),
+        );
+        devices.insert(
+            "block0".to_string(),
+            propolis_server_config::Device {
+                driver: "pci-virtio-block".to_string(),
+                options: device_options,
+            },
+        );
+        blockdev_options
+            .insert("path".to_string(), toml::Value::String(backing));
+        block_devs.insert(
+            "main_disk".to_string(),
+            propolis_server_config::BlockDevice {
+                bdtype: "file".to_string(),
+                options: blockdev_options,
+                opts: BlockOpts {
+                    block_size: None,
+                    read_only: None,
+                    skip_flush: Some(true),
+                },
+            },
+        );
     }
 
     async fn launch(
@@ -1260,6 +1338,10 @@ pub(crate) async fn launch_vm(
         bootrom_id: uuid::Uuid::default(),
         memory: node.memory,
         vcpus: node.cores,
+        metadata: InstanceMetadata {
+            project_id: uuid::Uuid::nil(),
+            silo_id: uuid::Uuid::nil(),
+        },
     };
     let req = propolis_client::types::InstanceEnsureRequest {
         properties,
