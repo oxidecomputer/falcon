@@ -224,7 +224,9 @@ impl SerialCommander {
             match ws.next().await {
                 Some(Ok(Message::Binary(mut data))) => {
                     // remove all control characters
-                    data.retain(|x| *x > 31);
+                    if allow_eclipse {
+                        data.retain(|x| *x > 31);
+                    }
                     for x in &data {
                         if *x == detector[i] {
                             i += 1;
