@@ -6,6 +6,7 @@
 
 use crate::error::Error;
 use futures::{SinkExt, StreamExt};
+use regex::Regex;
 use slog::{debug, trace, warn, Logger};
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -28,10 +29,14 @@ pub struct SerialCommander {
     pub instance: String,
     pub name: String,
     pub state: State,
+    eoc_regex: Regex,
+    login_prompt_regex: Regex,
     log: Logger,
 }
 
 const EOC_DETECTOR: &str = "__FALCON_EXEC_FINISHED__";
+const ENTER: u8 = 0x0d;
+const USERNAME: &[u8] = "root".as_bytes();
 
 impl SerialCommander {
     pub fn new(
@@ -40,12 +45,16 @@ impl SerialCommander {
         name: String,
         log: Logger,
     ) -> SerialCommander {
+        let eoc_regex = Regex::new(&format!("(?mR){EOC_DETECTOR}")).unwrap();
+        let login_prompt_regex = Regex::new("login:").unwrap();
         SerialCommander {
             addr,
             instance,
             name,
             log,
             state: State::Empty,
+            eoc_regex,
+            login_prompt_regex,
         }
     }
 
@@ -79,51 +88,26 @@ impl SerialCommander {
         debug!(self.log, "[sc] {}: starting", self.name);
 
         let mut ws = self.connect().await?;
-        self.wait_for_prompt(&mut ws, coax_prompt).await?;
+        self.wait_for_login_prompt(&mut ws, coax_prompt).await?;
         self.login(&mut ws).await?;
 
         Ok(ws)
     }
 
-    async fn wait_for_prompt(
+    async fn wait_for_login_prompt(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         coax_prompt: bool,
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {} waiting for prompt", self.name);
 
-        // TODO hardcode
-        let prompt = b"login:";
-        let mut i = 0;
-
-        loop {
-            if coax_prompt {
-                let v = vec![0x0du8, 0x0du8]; //<enter><enter>
-                ws.send(Message::binary(v)).await?;
-            }
-            match ws.next().await {
-                Some(Ok(Message::Binary(input))) => {
-                    // look for login prompt, possibly across messsages
-                    for x in input {
-                        if x == prompt[i] {
-                            i += 1;
-                            if i == prompt.len() {
-                                debug!(
-                                    self.log,
-                                    "[sc] {} prompt detected", self.name
-                                );
-                                return Ok(());
-                            }
-                        } else {
-                            i = 0;
-                        }
-                    }
-                }
-                Some(Ok(Message::Close(..))) | None => break,
-                _ => continue,
-            }
+        let timeout = None;
+        if coax_prompt {
+            let v = vec![ENTER, ENTER];
+            ws.send(Message::binary(v)).await?;
         }
-
+        self.drain_match(ws, timeout, self.login_prompt_regex.clone())
+            .await?;
         Ok(())
     }
 
@@ -133,29 +117,63 @@ impl SerialCommander {
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {}: logging in", self.name);
 
-        //TODO hardcode
-        let mut v = Vec::from(b"root".as_slice());
-        v.push(0x0du8); //<enter>
-        ws.send(Message::binary(v)).await?;
-        self.drain(ws, 1000).await?;
+        let timeout = Some(10000);
 
-        let v = vec![0x0du8];
-        ws.send(Message::binary(v)).await?;
-        self.drain(ws, 1000).await?;
-
-        let mut v = Vec::from(b"export TERM=xterm".as_slice());
-        v.push(0x0du8); //<enter>
-        ws.send(Message::binary(v)).await?;
-        self.drain(ws, 1000).await?;
-
-        let mut v = Vec::from(
-            b"PROMPT_COMMAND='echo __FALCON_EXEC_FINISHED__'".as_slice(),
+        // Send username and wait for password prompt
+        trace!(
+            self.log,
+            "[sc] {}: injecting username at expected password prompt",
+            self.name
         );
-        v.push(0x0du8); //<enter>
+        let mut v = Vec::from(USERNAME);
+        v.push(ENTER);
         ws.send(Message::binary(v)).await?;
-        self.drain(ws, 1000).await?;
 
-        //TODO check login
+        // Some systems (such as our debian 11 image) don't take passwords.
+        // In that case, we also accept a root prompt.
+        self.drain_match(
+            ws,
+            timeout,
+            Regex::new(r"Password:|root@.+#").unwrap(),
+        )
+        .await?;
+
+        // Send empty password and wait for prompt
+        trace!(
+            self.log,
+            "[sc] {}: Sending empty password after expected password prompt",
+            self.name
+        );
+        let v = vec![ENTER];
+        ws.send(Message::binary(v)).await?;
+        self.drain_match(ws, timeout, Regex::new(r"root@.+#").unwrap())
+            .await?;
+
+        // Set the terminal type
+        trace!(self.log, "[sc] {}: Setting TERM=xterm", self.name);
+        let cmd = r"export TERM=xterm";
+        let mut v = Vec::from(cmd);
+        v.push(ENTER);
+        ws.send(Message::binary(v.clone())).await?;
+        let regex = Regex::new(&format!("{cmd}.*\\n")).unwrap();
+        self.drain_match(ws, timeout, regex).await?;
+
+        // Set the prompt command to allow us to detect the end of each command
+        trace!(self.log, "[sc] {}: Setting PROMPT_COMMAND", self.name);
+        let mut v = Vec::from(
+            format!("PROMPT_COMMAND='echo {EOC_DETECTOR}'").as_bytes(),
+        );
+        v.push(ENTER);
+        ws.send(Message::binary(v)).await?;
+        // We can possibly see the PROMPT_COMMAND twice here, so we want to
+        // do a special match where we only see it on the start of a line,
+        // ignoring the echoing of our command by the terminal. This is why we
+        // don't just use `self.eoc_regex`. We don't want this for the general
+        // case, because in some cases (like our debian 11 image), we get output
+        // prepended to the PROMPT_COMMAND.
+        let regex = Regex::new(&format!("(?mR)^{EOC_DETECTOR}")).unwrap();
+        self.drain_match(ws, timeout, regex).await?;
+
         Ok(())
     }
 
@@ -163,155 +181,99 @@ impl SerialCommander {
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
     ) -> Result<(), Error> {
+        let timeout = Some(5000);
         let mut v = Vec::from(b"logout".as_slice());
-        v.push(0x0du8); //<enter>
+        v.push(ENTER);
         ws.send(Message::binary(v)).await?;
-        self.drain(ws, 1000).await?;
-
+        self.drain_match(ws, timeout, self.login_prompt_regex.clone())
+            .await?;
         Ok(())
     }
 
-    //TODO this could be much more robust than it is. It would be good to have
-    //some sort of terminal state machine that consumes terminal input and does
-    //the right thing rather than looking for potentially problematic characters
-    //in the output ad-hoc.
+    // Execute a command with a specific timeout
+    pub async fn exec_timeout(
+        &mut self,
+        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        cmd: String,
+        timeout_ms: Option<u64>,
+    ) -> Result<String, Error> {
+        debug!(self.log, "[sc] {}: executing command `{}`", self.name, cmd);
+
+        let mut v = Vec::from(cmd.as_bytes());
+        v.push(ENTER);
+        ws.send(Message::binary(v)).await?;
+
+        let out = self
+            .drain_match(ws, timeout_ms, self.eoc_regex.clone())
+            .await?;
+
+        // Iterate over all returned lines, stripping the first.
+        // This could almost certainly be made more efficient, by perhaps never
+        // adding the first line when parsing the regex.
+        let lines = out.lines().skip(1);
+        let mut stripped = String::new();
+        for line in lines {
+            stripped.push_str(line);
+            stripped.push('\n');
+        }
+        // Remove the last `\n`
+        stripped.pop();
+
+        Ok(stripped)
+    }
+
+    // Execute a command with no timeout
     pub async fn exec(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
         command: String,
     ) -> Result<String, Error> {
-        debug!(
-            self.log,
-            "[sc] {}: executing command `{}`", self.name, command
-        );
-
-        let cmd = command.to_string();
-
-        let v = Vec::from(cmd.as_bytes());
-        ws.send(Message::binary(v)).await?;
-        self.drain_detector(ws, cmd.as_bytes(), true).await?;
-        ws.send(Message::binary(vec![0x0du8])).await?; //<enter>
-        let s = self
-            .drain_detector(ws, EOC_DETECTOR.as_bytes(), false)
-            .await?;
-        // remove paste mode terminal characters if present
-        let s = s.replace("\u{1b}[?2004l", "");
-        let s = s.replace("\u{1b}[?2004h", "");
-        // remove the end oof command detector
-        let s = s.replace(EOC_DETECTOR, "");
-        let mut s = s.trim();
-        //TODO assumes there will be a newline after the command, which is not
-        //always the case
-        if let Some(i) = s.rfind("\r\n") {
-            s = &s[..i];
-        }
-        //let s = s.replace(|c: char| c.is_control(), "");
-        Ok(s.trim().to_string())
+        self.exec_timeout(ws, command, None).await
     }
 
-    pub async fn drain_detector(
+    /// Drain from the websocket until we match the provided regex or timeout.
+    ///
+    /// Return all read data up to the regex match or an error.
+    pub async fn drain_match(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-        detector: &[u8],
-        allow_eclipse: bool,
+        wait_ms: Option<u64>,
+        regex: Regex,
     ) -> Result<String, Error> {
-        trace!(self.log, "[sc] {}: draining stream", self.name);
+        trace!(self.log, "[sc] {}: drain by matching regex", self.name);
+
+        // Use the largest possible timeout if we don't want a timeout
+        let wait_ms = wait_ms.unwrap_or(u64::MAX);
 
         let mut result = "".to_string();
-        let mut i = 0;
-
         loop {
-            match ws.next().await {
-                Some(Ok(Message::Binary(mut data))) => {
-                    // remove all control characters
-                    if allow_eclipse {
-                        data.retain(|x| *x > 31);
-                    }
-                    for x in &data {
-                        if *x == detector[i] {
-                            i += 1;
-                            if i == detector.len() - 1 {
-                                let s =
-                                    String::from_utf8_lossy(data.as_slice())
-                                        .to_string();
-                                result += &s;
-                                debug!(
-                                    self.log,
-                                    "[sc] {}: detector detected", self.name
-                                );
-                                trace!(
-                                    self.log,
-                                    "[sc] {}: drained: `{}`",
-                                    self.name,
-                                    &result
-                                );
-                                self.drain(ws, 500).await?;
-                                return Ok(result);
-                            }
-                        } else {
-                            i = 0;
-                        }
-                    }
-                    let s =
-                        String::from_utf8_lossy(data.as_slice()).to_string();
-                    result += &s;
-                    if result.len() >= detector.len() && allow_eclipse {
-                        debug!(
-                            self.log,
-                            "[sc] {}: detector eclipsed", self.name
-                        );
-                        trace!(
-                            self.log,
-                            "[sc] {}: drained: `{}`",
-                            self.name,
-                            &result
-                        );
-                        self.drain(ws, 500).await?;
-                        return Ok(result);
-                    }
-                    trace!(
-                        self.log,
-                        "[sc] {}: partial result `{}`",
-                        self.name,
-                        &result
-                    );
-                }
-                Some(Ok(Message::Close(..))) => {
-                    trace!(self.log, "[sc] {}: breaking on close", self.name);
-                    break;
-                }
-                None => {
-                    trace!(self.log, "[sc] {}: breaking on none", self.name);
-                    break;
-                }
-                _ => {
-                    trace!(self.log, "[sc] {}: breaking on _", self.name);
-                    break;
-                }
-            }
-        }
-
-        trace!(self.log, "[sc] {}: drained: `{}`", self.name, &result);
-
-        Ok(result.to_string())
-    }
-
-    pub async fn drain(
-        &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-        wait: u64,
-    ) -> Result<String, Error> {
-        trace!(self.log, "[sc] {}: draining stream", self.name);
-
-        let mut result = "".to_string();
-
-        loop {
-            match timeout(Duration::from_millis(wait), ws.next()).await {
+            match timeout(Duration::from_millis(wait_ms), ws.next()).await {
                 Ok(msg) => match msg {
                     Some(Ok(Message::Binary(data))) => {
                         let s = String::from_utf8_lossy(data.as_slice())
                             .to_string();
+                        trace!(
+                            self.log,
+                            "[sc] {}: received data: {}",
+                            self.name,
+                            s
+                        );
                         result += &s;
+                        if let Some(mat) = regex.find(&result) {
+                            trace!(
+                                self.log,
+                                "[sc] {}: drained: `{}`",
+                                self.name,
+                                &result
+                            );
+                            result.truncate(mat.start());
+                            trace!(
+                                self.log,
+                                "[sc] {}: breaking on success",
+                                self.name
+                            );
+                            break;
+                        }
                     }
                     Some(Ok(Message::Close(..))) => {
                         trace!(
@@ -319,7 +281,10 @@ impl SerialCommander {
                             "[sc] {}: breaking on close",
                             self.name
                         );
-                        break;
+                        return Err(Error::Exec(format!(
+                            "[sc] {}: websocket closed",
+                            self.name
+                        )));
                     }
                     None => {
                         trace!(
@@ -327,21 +292,33 @@ impl SerialCommander {
                             "[sc] {}: breaking on none",
                             self.name
                         );
-                        break;
+                        return Err(Error::Exec(format!(
+                            "[sc] {}: stream returned no data",
+                            self.name
+                        )));
                     }
                     _ => {
                         trace!(self.log, "[sc] {}: breaking on _", self.name);
-                        break;
+                        return Err(Error::Exec(format!(
+                            "[sc] {}: Unexpected websocket message",
+                            self.name
+                        )));
                     }
                 },
                 Err(_) => {
-                    trace!(self.log, "[sc] {}: breaking on timeout", self.name);
-                    break;
+                    trace!(
+                        self.log,
+                        "[sc] {}: breaking on timeout: received {}",
+                        self.name,
+                        result
+                    );
+                    return Err(Error::Exec(format!(
+                        "[sc] {}: timeout waiting for data",
+                        self.name
+                    )));
                 }
             }
         }
-
-        trace!(self.log, "[sc] {}: drained: `{}`", self.name, &result);
 
         Ok(result)
     }
