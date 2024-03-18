@@ -29,11 +29,12 @@ pub struct SerialCommander {
     pub instance: String,
     pub name: String,
     pub state: State,
-    prompt_regex: Regex,
+    eoc_regex: Regex,
     login_prompt_regex: Regex,
     log: Logger,
 }
 
+const EOC_DETECTOR: &str = "__FALCON_EXEC_FINISHED__";
 const ENTER: u8 = 0x0d;
 const USERNAME: &[u8] = "root".as_bytes();
 
@@ -44,15 +45,15 @@ impl SerialCommander {
         name: String,
         log: Logger,
     ) -> SerialCommander {
-        let prompt_regex = Regex::new("root@.+:.*# ").unwrap();
-        let login_prompt_regex = Regex::new(".+ login: ").unwrap();
+        let eoc_regex = Regex::new(&format!("(?mR)^{EOC_DETECTOR}")).unwrap();
+        let login_prompt_regex = Regex::new("login:").unwrap();
         SerialCommander {
             addr,
             instance,
             name,
             log,
             state: State::Empty,
-            prompt_regex,
+            eoc_regex,
             login_prompt_regex,
         }
     }
@@ -128,14 +129,24 @@ impl SerialCommander {
         // Send empty password and wait for prompt
         let v = vec![ENTER];
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, self.prompt_regex.clone())
+        self.drain_match(ws, timeout, Regex::new(r"\n.+\n").unwrap())
             .await?;
 
         // Set the terminal type
-        let mut v = Vec::from(b"export TERM=xterm".as_slice());
+        let cmd = r"export TERM=xterm";
+        let mut v = Vec::from(cmd);
+        v.push(ENTER);
+        ws.send(Message::binary(v.clone())).await?;
+        let regex = Regex::new(&format!("{cmd}.*\\n")).unwrap();
+        self.drain_match(ws, timeout, regex).await?;
+
+        // Set the prompt command to allow us to detect the end of each command
+        let mut v = Vec::from(
+            format!("PROMPT_COMMAND='echo {EOC_DETECTOR}'").as_bytes(),
+        );
         v.push(ENTER);
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, self.prompt_regex.clone())
+        self.drain_match(ws, timeout, self.eoc_regex.clone())
             .await?;
 
         Ok(())
@@ -168,21 +179,17 @@ impl SerialCommander {
         ws.send(Message::binary(v)).await?;
 
         let out = self
-            .drain_match(ws, timeout_ms, self.prompt_regex.clone())
+            .drain_match(ws, timeout_ms, self.eoc_regex.clone())
             .await?;
 
-        // Iterate over all returned lines, stripping the first and last.
-        // This could probably be made more efficient, by perhaps never adding
-        // the lines to the output in the first place.
+        // Iterate over all returned lines, stripping the first.
+        // This could almost certainly be made more efficient, by perhaps never
+        // adding the first line when parsing the regex.
         let lines = out.lines().skip(1);
         let mut stripped = String::new();
-        let mut prev = None;
         for line in lines {
-            if let Some(prev) = prev {
-                stripped.push_str(prev);
-                stripped.push('\n');
-            }
-            prev = Some(line);
+            stripped.push_str(line);
+            stripped.push('\n');
         }
         // Remove the last `\n`
         stripped.pop();
@@ -201,7 +208,7 @@ impl SerialCommander {
 
     /// Drain from the websocket until we match the provided regex or timeout.
     ///
-    /// Return all read data or an error.
+    /// Return all read data up to the regex match or an error.
     pub async fn drain_match(
         &mut self,
         ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
@@ -227,7 +234,8 @@ impl SerialCommander {
                             s
                         );
                         result += &s;
-                        if regex.is_match(&result) {
+                        if let Some(mat) = regex.find(&result) {
+                            result.truncate(mat.start());
                             trace!(
                                 self.log,
                                 "[sc] {}: breaking on success",
