@@ -1,5 +1,4 @@
 /target
-Cargo.lock
 *.sw*
 rusty-tags.vi
 *.gz
