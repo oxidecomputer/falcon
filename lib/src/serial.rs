@@ -45,7 +45,7 @@ impl SerialCommander {
         name: String,
         log: Logger,
     ) -> SerialCommander {
-        let eoc_regex = Regex::new(&format!("(?mR)^{EOC_DETECTOR}")).unwrap();
+        let eoc_regex = Regex::new(&format!("(?mR){EOC_DETECTOR}")).unwrap();
         let login_prompt_regex = Regex::new("login:").unwrap();
         SerialCommander {
             addr,
@@ -120,19 +120,37 @@ impl SerialCommander {
         let timeout = Some(10000);
 
         // Send username and wait for password prompt
+        trace!(
+            self.log,
+            "[sc] {}: injecting username at expected password prompt",
+            self.name
+        );
         let mut v = Vec::from(USERNAME);
         v.push(ENTER);
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, Regex::new(r"Password:").unwrap())
-            .await?;
+
+        // Some systems (such as our debian 11 image) don't take passwords.
+        // In that case, we also accept a root prompt.
+        self.drain_match(
+            ws,
+            timeout,
+            Regex::new(r"Password:|root@.+#").unwrap(),
+        )
+        .await?;
 
         // Send empty password and wait for prompt
+        trace!(
+            self.log,
+            "[sc] {}: Sending empty password after expected password prompt",
+            self.name
+        );
         let v = vec![ENTER];
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, Regex::new(r"\n.+\n").unwrap())
+        self.drain_match(ws, timeout, Regex::new(r"root@.+#").unwrap())
             .await?;
 
         // Set the terminal type
+        trace!(self.log, "[sc] {}: Setting TERM=xterm", self.name);
         let cmd = r"export TERM=xterm";
         let mut v = Vec::from(cmd);
         v.push(ENTER);
@@ -141,13 +159,20 @@ impl SerialCommander {
         self.drain_match(ws, timeout, regex).await?;
 
         // Set the prompt command to allow us to detect the end of each command
+        trace!(self.log, "[sc] {}: Setting PROMPT_COMMAND", self.name);
         let mut v = Vec::from(
             format!("PROMPT_COMMAND='echo {EOC_DETECTOR}'").as_bytes(),
         );
         v.push(ENTER);
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, self.eoc_regex.clone())
-            .await?;
+        // We can possibly see the PROMPT_COMMAND twice here, so we want to
+        // do a special match where we only see it on the start of a line,
+        // ignoring the echoing of our command by the terminal. This is why we
+        // don't just use `self.eoc_regex`. We don't want this for the general
+        // case, because in some cases (like our debian 11 image), we get output
+        // prepended to the PROMPT_COMMAND.
+        let regex = Regex::new(&format!("(?mR)^{EOC_DETECTOR}")).unwrap();
+        self.drain_match(ws, timeout, regex).await?;
 
         Ok(())
     }
@@ -235,6 +260,12 @@ impl SerialCommander {
                         );
                         result += &s;
                         if let Some(mat) = regex.find(&result) {
+                            trace!(
+                                self.log,
+                                "[sc] {}: drained: `{}`",
+                                self.name,
+                                &result
+                            );
                             result.truncate(mat.start());
                             trace!(
                                 self.log,
@@ -275,7 +306,12 @@ impl SerialCommander {
                     }
                 },
                 Err(_) => {
-                    trace!(self.log, "[sc] {}: breaking on timeout", self.name);
+                    trace!(
+                        self.log,
+                        "[sc] {}: breaking on timeout: received {}",
+                        self.name,
+                        result
+                    );
                     return Err(Error::Exec(format!(
                         "[sc] {}: timeout waiting for data",
                         self.name
@@ -283,8 +319,6 @@ impl SerialCommander {
                 }
             }
         }
-
-        trace!(self.log, "[sc] {}: drained: `{}`", self.name, &result);
 
         Ok(result)
     }
