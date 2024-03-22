@@ -13,6 +13,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context};
+use camino::{Utf8Path, Utf8PathBuf};
 use clap::ArgAction;
 use colored::*;
 use futures::{SinkExt, StreamExt};
@@ -25,7 +26,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use clap::Parser;
 
-use crate::{dataset, error::Error, Deployment, Runner};
+use crate::{dataset, error::Error, Deployment, Runner, DEFAULT_FALCON_DIR};
 
 pub enum RunMode {
     Unspec,
@@ -78,21 +79,37 @@ struct CmdLaunch {
     /// The propolis-server binary to use
     #[clap(short, long)]
     propolis: Option<String>,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
-struct CmdPreflight {}
+struct CmdPreflight {
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
+}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
-struct CmdDestroy {}
+struct CmdDestroy {
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
+}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
 struct CmdSerial {
     /// Name of the VM to establish a serial connection to
     vm_name: String,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 #[derive(Parser)]
@@ -100,6 +117,10 @@ struct CmdSerial {
 struct CmdReboot {
     /// Name of the VM to reboot
     vm_name: String,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 #[derive(Parser)]
@@ -111,6 +132,10 @@ struct CmdHyperstop {
     /// Stop all vms in the topology
     #[clap(short, long)]
     all: bool,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 #[derive(Parser)]
@@ -126,6 +151,10 @@ struct CmdHyperstart {
     /// Start all vms in the topology
     #[clap(short, long)]
     all: bool,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 #[derive(Parser)]
@@ -144,6 +173,10 @@ struct CmdSnapshot {
 
     /// What to name the new snapshot
     snapshot_name: String,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 #[derive(Parser)]
@@ -155,6 +188,10 @@ struct CmdInfo {}
 struct CmdExec {
     node: String,
     command: String,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
 }
 
 /// Entry point for a command line application. Will parse command line
@@ -180,7 +217,8 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
 
     let opts: Opts = Opts::parse();
     match opts.subcmd {
-        SubCommand::Preflight(_) => {
+        SubCommand::Preflight(p) => {
+            r.falcon_dir = p.falcon_dir;
             preflight(r).await;
             Ok(RunMode::Unspec)
         }
@@ -188,15 +226,17 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             if let Some(path) = l.propolis {
                 r.propolis_binary = path
             }
+            r.falcon_dir = l.falcon_dir;
             launch(r).await;
             Ok(RunMode::Launch)
         }
-        SubCommand::Destroy(_) => {
+        SubCommand::Destroy(d) => {
+            r.falcon_dir = d.falcon_dir;
             destroy(r);
             Ok(RunMode::Destroy)
         }
         SubCommand::Serial(ref c) => {
-            console(&c.vm_name).await?;
+            console(&c.vm_name, &c.falcon_dir).await?;
             Ok(RunMode::Unspec)
         }
         SubCommand::Info(_) => {
@@ -204,13 +244,13 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             Ok(RunMode::Unspec)
         }
         SubCommand::Reboot(ref c) => {
-            reboot(&c.vm_name).await?;
+            reboot(&c.vm_name, &c.falcon_dir).await?;
             Ok(RunMode::Unspec)
         }
         SubCommand::Hyperstop(ref c) => {
             if c.all {
                 for x in &r.deployment.nodes {
-                    hyperstop(&x.name).await?;
+                    hyperstop(&x.name, &c.falcon_dir).await?;
                 }
             } else {
                 match c.vm_name {
@@ -219,7 +259,7 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
                             "vm name required unless --all flag is used".into(),
                         ))
                     }
-                    Some(ref n) => hyperstop(n).await?,
+                    Some(ref n) => hyperstop(n, &c.falcon_dir).await?,
                 }
             }
             Ok(RunMode::Unspec)
@@ -231,7 +271,8 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             };
             if c.all {
                 for x in &r.deployment.nodes {
-                    hyperstart(&x.name, propolis_binary.clone()).await?;
+                    hyperstart(&x.name, propolis_binary.clone(), &c.falcon_dir)
+                        .await?;
                 }
             } else {
                 match c.vm_name {
@@ -240,7 +281,9 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
                             "vm name required unless --all flag is used".into(),
                         ))
                     }
-                    Some(ref n) => hyperstart(n, propolis_binary).await?,
+                    Some(ref n) => {
+                        hyperstart(n, propolis_binary, &c.falcon_dir).await?
+                    }
                 }
             }
             Ok(RunMode::Unspec)
@@ -258,6 +301,7 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             Ok(RunMode::Unspec)
         }
         SubCommand::Exec(ref c) => {
+            r.falcon_dir = c.falcon_dir.clone();
             exec(r, &c.node, &c.command).await?;
             Ok(RunMode::Unspec)
         }
@@ -339,8 +383,11 @@ fn netdestroy(r: &Runner) {
 
 fn snapshot(cmd: CmdSnapshot) -> Result<(), Error> {
     // read topology
-    let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
+    let mut path = cmd.falcon_dir.to_path_buf();
+    path.push("topology.ron");
+    let topo_ron = fs::read_to_string(&path)?;
     let d: Deployment = from_str(&topo_ron)?;
+    path.pop();
 
     // get node from topology
     let mut node = None;
@@ -405,16 +452,17 @@ fn destroy(r: &Runner) {
     }
 }
 
-async fn console(name: &str) -> Result<(), Error> {
+async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
     println!(
         "{}\n{}\n{}",
         "Entering VM console.".blue(),
         "Use ^q to exit.".bright_blue(),
         "Press enter to continue.".bright_blue()
     );
-    let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
-        .trim_end()
-        .parse()?;
+    let mut path = falcon_dir.to_path_buf();
+    path.push(format!("{name}.port"));
+    let port: u16 = fs::read_to_string(&path)?.trim_end().parse()?;
+    path.pop();
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     serial(addr).await?;
@@ -571,10 +619,11 @@ fn create_logger() -> Logger {
     Logger::root(drain, o!())
 }
 
-async fn reboot(name: &str) -> Result<(), Error> {
-    let port: u16 = fs::read_to_string(format!(".falcon/{}.port", name))?
-        .trim_end()
-        .parse()?;
+async fn reboot(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
+    let mut path = falcon_dir.to_path_buf();
+    path.push(format!("{name}.port"));
+    let port: u16 = fs::read_to_string(&path)?.trim_end().parse()?;
+    path.pop();
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let client = Client::new(&format!("http://{}", addr));
@@ -590,19 +639,20 @@ async fn reboot(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn hyperstop(name: &str) -> Result<(), Error> {
+async fn hyperstop(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
     let log = create_logger();
 
-    let pidfile = format!(".falcon/{}.pid", name);
+    let mut path = falcon_dir.to_path_buf();
+    path.push(format!("{name}.pid"));
 
     // read pid
-    match fs::read_to_string(&pidfile) {
+    match fs::read_to_string(&path) {
         Ok(pid) => match pid.trim_end().parse() {
             Ok(pid) => {
                 unsafe {
                     libc::kill(pid, libc::SIGKILL);
                 }
-                fs::remove_file(pidfile)?;
+                fs::remove_file(&path)?;
             }
             Err(e) => warn!(log, "could not parse pidfile for {}: {}", name, e),
         },
@@ -610,15 +660,18 @@ async fn hyperstop(name: &str) -> Result<(), Error> {
             warn!(log, "could not get pidfile for {}: {}", name, e);
         }
     };
+    path.pop();
 
     // get instance uuid
-    let uuid = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
+    path.push(format!("{name}.uuid"));
+    let uuid = match fs::read_to_string(&path) {
         Ok(u) => u,
         Err(e) => {
             warn!(log, "get propolis uuid for {}: {}", name, e);
             return Ok(());
         }
     };
+    path.pop();
 
     // destroy bhyve vm
     let vm_arg = format!("--vm={}", uuid);
@@ -636,10 +689,17 @@ async fn hyperstop(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
+async fn hyperstart(
+    name: &str,
+    propolis_binary: String,
+    falcon_dir: &Utf8Path,
+) -> Result<(), Error> {
     // read topology
-    let topo_ron = fs::read_to_string(".falcon/topology.ron")?;
+    let mut path = falcon_dir.to_path_buf();
+    path.push("topology.ron");
+    let topo_ron = fs::read_to_string(&path)?;
     let d: Deployment = from_str(&topo_ron)?;
+    path.pop();
 
     let mut node = None;
     for n in &d.nodes {
@@ -653,21 +713,29 @@ async fn hyperstart(name: &str, propolis_binary: String) -> Result<(), Error> {
         Some(node) => node,
     };
 
-    let port: u32 = fs::read_to_string(format!(".falcon/{}.port", name))?
-        .trim_end()
-        .parse()?;
+    path.push(format!("{name}.port"));
+    let port: u32 = fs::read_to_string(&path)?.trim_end().parse()?;
+    path.pop();
 
-    let vnc_port: u32 =
-        fs::read_to_string(format!(".falcon/{}.vnc_port", name))?
-            .trim_end()
-            .parse()?;
+    path.push(format!("{name}.vnc_port"));
+    let vnc_port: u32 = fs::read_to_string(&path)?.trim_end().parse()?;
+    path.pop();
 
-    let id: uuid::Uuid = fs::read_to_string(format!(".falcon/{}.uuid", name))?
-        .trim_end()
-        .parse()?;
+    path.push(format!("{name}.uuid"));
+    let id: uuid::Uuid = fs::read_to_string(&path)?.trim_end().parse()?;
+    path.pop();
     let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, port, vnc_port, &id, node).await?;
+    crate::launch_vm(
+        &log,
+        &propolis_binary,
+        port,
+        vnc_port,
+        &id,
+        node,
+        falcon_dir,
+    )
+    .await?;
 
     Ok(())
 }

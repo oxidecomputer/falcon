@@ -60,6 +60,8 @@ macro_rules! cmd {
     }};
 }
 
+pub const DEFAULT_FALCON_DIR: &str = ".falcon";
+
 pub struct Runner {
     /// The deployment object that describes the Falcon topology
     pub deployment: Deployment,
@@ -75,6 +77,11 @@ pub struct Runner {
 
     /// The root dataset to use for falcon activities
     pub dataset: String,
+
+    /// The location of the ".falcon" directory for a given deployment
+    ///
+    /// This directory is created by falcon and stores configuration.
+    pub falcon_dir: Utf8PathBuf,
 }
 
 /// A Deployment is the top level Falcon object. It contains a set of nodes and
@@ -259,6 +266,7 @@ impl Runner {
             persistent: false,
             propolis_binary: "propolis-server".into(),
             dataset: dataset(),
+            falcon_dir: DEFAULT_FALCON_DIR.into(),
         }
     }
 
@@ -526,12 +534,14 @@ impl Runner {
         }
 
         // ensure falcon working dir
-        fs::create_dir_all(".falcon")?;
+        fs::create_dir_all(&self.falcon_dir)?;
 
         // write falcon config
         let pretty = PrettyConfig::new().separate_tuple_members(true);
         let out = format!("{}\n", to_string_pretty(&self.deployment, pretty)?);
-        fs::write(".falcon/topology.ron", out)?;
+        let mut topo_path = self.falcon_dir.clone();
+        topo_path.push("topology.ron");
+        fs::write(&topo_path, out)?;
 
         for n in self.deployment.nodes.iter() {
             n.preflight(self)?;
@@ -618,7 +628,7 @@ impl Runner {
 
         // Destroy workspace
         info!(self.log, "destroying workspace");
-        fs::remove_dir_all(".falcon")?;
+        fs::remove_dir_all(&self.falcon_dir)?;
 
         Ok(())
     }
@@ -630,7 +640,9 @@ impl Runner {
     }
 
     async fn do_exec(&self, name: &str, cmd: &str) -> Result<String, Error> {
-        let id = match fs::read_to_string(format!(".falcon/{}.uuid", name)) {
+        let mut path = self.falcon_dir.clone();
+        path.push(format!("{name}.uuid"));
+        let id = match fs::read_to_string(&path) {
             Ok(u) => u,
             Err(e) => {
                 return Err(Error::NotFound(format!(
@@ -639,8 +651,10 @@ impl Runner {
                 )));
             }
         };
+        path.pop();
 
-        let port = match fs::read_to_string(format!(".falcon/{}.port", name)) {
+        path.push(format!("{name}.port"));
+        let port = match fs::read_to_string(&path) {
             Ok(p) => p.as_str().parse::<u16>()?,
             Err(e) => {
                 return Err(Error::NotFound(format!(
@@ -649,6 +663,7 @@ impl Runner {
                 )));
             }
         };
+        path.pop();
 
         let addr = SocketAddr::new(
             IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
@@ -894,7 +909,7 @@ impl Node {
             options: BTreeMap::new(),
         };
 
-        // write propolis instance config to .falcon/<node-name>.toml
+        // write propolis instance config to <falcon_dir>/<node-name>.toml
 
         let propolis_config = propolis_server_config::Config {
             bootrom: PathBuf::from("/var/ovmf/OVMF_CODE.fd"),
@@ -905,7 +920,10 @@ impl Node {
         };
 
         let config_toml = toml::to_string(&propolis_config)?;
-        fs::write(format!(".falcon/{}.toml", self.name), config_toml)?;
+
+        let mut path = r.falcon_dir.clone();
+        path.push(format!("{}.toml", self.name));
+        fs::write(&path, config_toml)?;
 
         Ok(())
     }
@@ -1044,8 +1062,16 @@ impl Node {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
-        launch_vm(&r.log, &r.propolis_binary, port, vnc_port, &id, self)
-            .await?;
+        launch_vm(
+            &r.log,
+            &r.propolis_binary,
+            port,
+            vnc_port,
+            &id,
+            self,
+            &r.falcon_dir,
+        )
+        .await?;
 
         if !self.do_setup {
             return Ok(());
@@ -1107,8 +1133,9 @@ impl Node {
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
         // get propolis pid
-        let pid = match fs::read_to_string(format!(".falcon/{}.pid", self.name))
-        {
+        let mut path = r.falcon_dir.clone();
+        path.push(format!("{}.pid", self.name));
+        let pid = match fs::read_to_string(&path) {
             Ok(pid) => match pid.parse::<i32>() {
                 Ok(pid) => pid,
                 Err(e) => {
@@ -1121,6 +1148,7 @@ impl Node {
                 return Ok(());
             }
         };
+        path.pop();
 
         // kill propolis instance
         unsafe {
@@ -1128,14 +1156,14 @@ impl Node {
         }
 
         // get instance uuid
-        let uuid =
-            match fs::read_to_string(format!(".falcon/{}.uuid", self.name)) {
-                Ok(u) => u,
-                Err(e) => {
-                    warn!(r.log, "get propolis uuid for {}: {}", self.name, e);
-                    return Ok(());
-                }
-            };
+        path.push(format!("{}.uuid", self.name));
+        let uuid = match fs::read_to_string(&path) {
+            Ok(u) => u,
+            Err(e) => {
+                warn!(r.log, "get propolis uuid for {}: {}", self.name, e);
+                return Ok(());
+            }
+        };
 
         // destroy bhyve vm
         let vm_arg = format!("--vm={}", uuid);
@@ -1280,18 +1308,26 @@ pub(crate) async fn launch_vm(
     vnc_port: u32,
     id: &uuid::Uuid,
     node: &Node,
+    falcon_dir: &Utf8Path,
 ) -> Result<(), Error> {
     // launch propolis-server
 
-    fs::write(format!(".falcon/{}.port", node.name), port.to_string())?;
-    fs::write(
-        format!(".falcon/{}.vnc_port", node.name),
-        vnc_port.to_string(),
-    )?;
+    let mut path = falcon_dir.to_path_buf();
+    path.push(format!("{}.port", node.name));
+    fs::write(&path, port.to_string())?;
+    path.pop();
+    path.push(format!("{}.vnc_port", node.name));
+    fs::write(&path, vnc_port.to_string())?;
+    path.pop();
 
-    let stdout = fs::File::create(format!(".falcon/{}.out", node.name))?;
-    let stderr = fs::File::create(format!(".falcon/{}.err", node.name))?;
-    let config = format!(".falcon/{}.toml", node.name);
+    path.push(format!("{}.out", node.name));
+    let stdout = fs::File::create(&path)?;
+    path.pop();
+    path.push(format!("{}.err", node.name));
+    let stderr = fs::File::create(&path)?;
+    path.pop();
+    path.push(format!("{}.toml", node.name));
+    let config = path.clone();
     let sockaddr = format!("[::]:{}", port);
     let vnc_sockaddr = format!("[::]:{}", vnc_port);
     let mut cmd = Command::new(propolis_binary);
@@ -1304,8 +1340,11 @@ pub(crate) async fn launch_vm(
     .stdout(stdout)
     .stderr(stderr);
     let child = cmd.spawn()?;
+    path.pop();
 
-    fs::write(format!(".falcon/{}.pid", node.name), child.id().to_string())?;
+    path.push(format!("{}.pid", node.name));
+    fs::write(&path, child.id().to_string())?;
+    path.pop();
 
     info!(
         log,
@@ -1328,7 +1367,9 @@ pub(crate) async fn launch_vm(
 
     // https://github.com/rust-lang/rust-clippy/issues/9317
     #[allow(clippy::unnecessary_to_owned)]
-    fs::write(format!(".falcon/{}.uuid", node.name), id.to_string())?;
+    path.push(format!("{}.uuid", node.name));
+    fs::write(&path, id.to_string())?;
+    path.pop();
 
     let properties = propolis_client::types::InstanceProperties {
         id: *id,
