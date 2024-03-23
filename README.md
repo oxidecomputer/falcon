@@ -108,5 +108,9 @@ cargo test -- --test-threads 1 --ignored
 Note that `cargo test` will automatically use `pfexec` to run tests; this is configured in
 [.cargo/config.toml](.cargo/config.toml).
 
-Due to a shared `.falcon` directory, concurrent tests are not possible at the
-current time.
+By default, topology and configuration for a falcon deployment is placed into
+a hardcoded  `$PWD/.falcon` directory. However, users can override this by
+setting the `Runner::falcon_dir` variable inside their code, and/or by passing
+a `--falcon-dir <DIR>` parameter to most CLI commands. This allows tests and
+code to be run independently as long as the names of the runners and nodes are
+unique.
