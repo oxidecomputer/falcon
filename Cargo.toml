@@ -29,8 +29,8 @@ slog = { version = "2.7", features = ["max_level_trace"] }
 slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "6dceb9ef69c217cb78a2018bbedafbc19f6ec1af" }
-propolis-server-config = { git = "https://github.com/oxidecomputer/propolis", rev = "6dceb9ef69c217cb78a2018bbedafbc19f6ec1af" }
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "71ff7629e37cc48491cf822004862d2a63a2dea4" }
+propolis-server-config = { git = "https://github.com/oxidecomputer/propolis", rev = "71ff7629e37cc48491cf822004862d2a63a2dea4" }
 toml = "0.7"
 libc = "0.2"
 tokio = { version = "1", features = ["full"] }
