@@ -61,6 +61,11 @@ macro_rules! cmd {
 }
 
 pub const DEFAULT_FALCON_DIR: &str = ".falcon";
+const ZFS_BIN: &str = "/usr/sbin/zfs";
+const DLADM_BIN: &str = "/usr/sbin/dladm";
+const DD_BIN: &str = "/usr/bin/dd";
+const RM_BIN: &str = "/usr/bin/rm";
+const TRUNCATE_BIN: &str = "/usr/bin/truncate";
 
 pub struct Runner {
     /// The deployment object that describes the Falcon topology
@@ -616,13 +621,13 @@ impl Runner {
 
         // destroy any zvol backed images
         let img_dir = format!("{}/topo/{}", self.dataset, self.deployment.name);
-        Command::new("zfs")
+        Command::new(ZFS_BIN)
             .args(["destroy", "-r", img_dir.as_ref()])
             .output()?;
 
         // destroy any file backed images
         let img_dir = format!("/var/falcon/dsk/{}", self.deployment.name);
-        Command::new("rm")
+        Command::new(RM_BIN)
             .args(["-rf", img_dir.as_ref()])
             .output()?;
 
@@ -938,7 +943,7 @@ impl Node {
             self.dataset, r.deployment.name, self.name
         );
 
-        let out = Command::new("zfs")
+        let out = Command::new(ZFS_BIN)
             .args(["clone", "-p", source.as_ref(), dest.as_ref()])
             .output()?;
 
@@ -948,7 +953,7 @@ impl Node {
 
         let volsize = format!("volsize={}G", self.reserved);
 
-        let out = Command::new("zfs")
+        let out = Command::new(ZFS_BIN)
             .args(["set", volsize.as_str(), dest.as_ref()])
             .output()?;
 
@@ -958,7 +963,7 @@ impl Node {
 
         let reserved = format!("reservation={}G", self.reserved);
 
-        let out = Command::new("zfs")
+        let out = Command::new(ZFS_BIN)
             .args(["set", reserved.as_str(), dest.as_ref()])
             .output()?;
 
@@ -966,7 +971,7 @@ impl Node {
             return Err(Error::Zfs(String::from_utf8(out.stderr)?));
         }
 
-        let out = Command::new("zfs")
+        let out = Command::new(ZFS_BIN)
             .args(["set", "sync=disabled", dest.as_ref()])
             .output()?;
 
@@ -997,14 +1002,14 @@ impl Node {
         info!(r.log, "copying backing image for {}", self.name);
         let dd_if = format!("if={source_zvol}");
         let dd_of = format!("of={backing}");
-        let out = Command::new("dd")
+        let out = Command::new(DD_BIN)
             .args([dd_if.as_str(), dd_of.as_str(), "bs=1024M"])
             .output()?;
         if !out.status.success() {
             return Err(Error::Exec(String::from_utf8(out.stderr)?));
         }
 
-        let out = Command::new("truncate")
+        let out = Command::new(TRUNCATE_BIN)
             .args(["-s", size.as_str(), backing.as_str()])
             .output()?;
         if !out.status.success() {
@@ -1227,6 +1232,23 @@ impl Link {
                 mac,
                 libnet::LinkFlags::Active,
             )?;
+            let args =
+                vec!["set-linkprop", "-p", "promisc-filtered=off", &vlink];
+            match Command::new(DLADM_BIN).args(args).output() {
+                Err(e) => {
+                    return Err(Error::Exec(format!(
+                        "failed to run {DLADM_BIN}: {e:?}"
+                    )));
+                }
+                Ok(s) => {
+                    if !s.status.success() {
+                        return Err(Error::Exec(format!(
+                            "{DLADM_BIN} failed: {:?}",
+                            s.stderr
+                        )));
+                    }
+                }
+            }
 
             debug!(r.log, "link pair created");
         }
