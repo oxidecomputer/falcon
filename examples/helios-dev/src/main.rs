@@ -11,7 +11,7 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("hdev");
 
     // Modify cores or memory if you'd like
-    let masaka = d.node("masaka", "helios-2.2", 4, gb(4));
+    let masaka = d.node("masaka", "helios-2.3", 4, gb(4));
     d.mount("./cargo-bay", "/opt/cargo-bay", masaka)?;
 
     // XXX Change this to point at your host machine's internet-facing network
