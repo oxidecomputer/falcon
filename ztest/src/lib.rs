@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use libnet::{
     connect_simnet_peers, create_ipaddr, create_simnet_link, create_vnic_link,
     delete_route, enable_v6_link_local, ensure_route_present, get_ipaddr_info,
-    DropIp, DropLink, Ipv4Prefix, Ipv6Prefix, LinkFlags, LinkHandle,
+    DropIp, DropLink, Ipv4Net, Ipv6Net, LinkFlags, LinkHandle,
 };
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::{Deref, DerefMut};
@@ -112,7 +112,7 @@ impl Ip {
         let addr: Ipv4Addr = addr.parse()?;
         let mask: u8 = mask.parse()?;
         let addrname = format!("{}/{}", ifname, name);
-        create_ipaddr(&addrname, Ipv4Prefix { addr, mask }.into())?;
+        create_ipaddr(&addrname, Ipv4Net::new(addr, mask).unwrap().into())?;
         let info = get_ipaddr_info(&addrname)?;
         Ok(Self {
             ip: addr.into(),
@@ -156,10 +156,7 @@ impl RouteV4 {
         gw: Ipv4Addr,
         interface: Option<String>,
     ) -> Result<Self> {
-        let pfx = Ipv4Prefix {
-            addr: dst,
-            mask: prefix_len,
-        };
+        let pfx = Ipv4Net::new(dst, prefix_len).unwrap();
         ensure_route_present(pfx.into(), gw.into(), interface.clone())?;
         Ok(Self {
             dst,
@@ -172,10 +169,7 @@ impl RouteV4 {
 
 impl Drop for RouteV4 {
     fn drop(&mut self) {
-        let pfx = Ipv4Prefix {
-            addr: self.dst,
-            mask: self.prefix_len,
-        };
+        let pfx = Ipv4Net::new(self.dst, self.prefix_len).unwrap();
         if let Err(e) =
             delete_route(pfx.into(), self.gw.into(), self.interface.clone())
         {
@@ -198,10 +192,7 @@ impl RouteV6 {
         gw: Ipv6Addr,
         interface: Option<String>,
     ) -> Result<Self> {
-        let pfx = Ipv6Prefix {
-            addr: dst,
-            mask: prefix_len,
-        };
+        let pfx = Ipv6Net::new(dst, prefix_len).unwrap();
         ensure_route_present(pfx.into(), gw.into(), interface.clone())?;
         Ok(Self {
             dst,
@@ -214,10 +205,7 @@ impl RouteV6 {
 
 impl Drop for RouteV6 {
     fn drop(&mut self) {
-        let pfx = Ipv6Prefix {
-            addr: self.dst,
-            mask: self.prefix_len,
-        };
+        let pfx = Ipv6Net::new(self.dst, self.prefix_len).unwrap();
         if let Err(e) =
             delete_route(pfx.into(), self.gw.into(), self.interface.clone())
         {
