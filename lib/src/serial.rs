@@ -149,9 +149,19 @@ impl SerialCommander {
         self.drain_match(ws, timeout, Regex::new(r"root@.+#").unwrap())
             .await?;
 
-        // Set the terminal type
-        trace!(self.log, "[sc] {}: Setting TERM=xterm", self.name);
-        let cmd = r"export TERM=xterm";
+        // Set the terminal type.  This is non-interactive; we don't
+        // want a real terminal type with actual capabilities.
+        trace!(self.log, "[sc] {}: Setting TERM=dumb", self.name);
+        let cmd = r"export TERM=dumb";
+        let mut v = Vec::from(cmd);
+        v.push(ENTER);
+        ws.send(Message::binary(v.clone())).await?;
+        let regex = Regex::new(&format!("{cmd}.*\\n")).unwrap();
+        self.drain_match(ws, timeout, regex).await?;
+
+        // Put the terminal into raw mode.
+        trace!(self.log, "[sc] {}: Setting raw terminal mode", self.name);
+        let cmd = r"stty raw";
         let mut v = Vec::from(cmd);
         v.push(ENTER);
         ws.send(Message::binary(v.clone())).await?;
