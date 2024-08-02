@@ -1404,6 +1404,10 @@ pub(crate) async fn launch_vm(
         metadata: InstanceMetadata {
             project_id: uuid::Uuid::nil(),
             silo_id: uuid::Uuid::nil(),
+            sled_id: uuid::Uuid::nil(),
+            sled_model: "falcon".to_owned(),
+            sled_serial: "falcon".to_owned(),
+            sled_revision: 0,
         },
     };
     let req = propolis_client::types::InstanceEnsureRequest {
