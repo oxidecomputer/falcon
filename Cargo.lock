@@ -309,7 +309,7 @@ dependencies = [
 [[package]]
 name = "cpuid_profile_config"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=d6fc6d458e08e7ae1008aaa2d505a6523a4e3538#d6fc6d458e08e7ae1008aaa2d505a6523a4e3538"
+source = "git+https://github.com/oxidecomputer/propolis?rev=722bedc069fed1fdd8e465cbc106cc3a684d744b#722bedc069fed1fdd8e465cbc106cc3a684d744b"
 dependencies = [
  "serde",
  "serde_derive",
@@ -923,7 +923,6 @@ dependencies = [
  "futures",
  "libc",
  "libnet",
- "portpicker",
  "propolis-client",
  "propolis-server-config",
  "rand",
@@ -939,7 +938,7 @@ dependencies = [
  "tabwriter",
  "thiserror",
  "tokio",
- "tokio-tungstenite 0.21.0",
+ "tokio-tungstenite",
  "toml",
  "uuid",
  "zone 0.1.8",
@@ -1247,15 +1246,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69d3587f8a9e599cc7ec2c00e331f71c4e69a5f9a4b8a6efd5b07466b9736f9a"
 
 [[package]]
-name = "portpicker"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
-dependencies = [
- "rand",
-]
-
-[[package]]
 name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1383,7 +1373,7 @@ dependencies = [
 [[package]]
 name = "propolis-client"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=d6fc6d458e08e7ae1008aaa2d505a6523a4e3538#d6fc6d458e08e7ae1008aaa2d505a6523a4e3538"
+source = "git+https://github.com/oxidecomputer/propolis?rev=722bedc069fed1fdd8e465cbc106cc3a684d744b#722bedc069fed1fdd8e465cbc106cc3a684d744b"
 dependencies = [
  "async-trait",
  "base64 0.21.5",
@@ -1397,14 +1387,14 @@ dependencies = [
  "slog",
  "thiserror",
  "tokio",
- "tokio-tungstenite 0.20.1",
+ "tokio-tungstenite",
  "uuid",
 ]
 
 [[package]]
 name = "propolis-server-config"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=d6fc6d458e08e7ae1008aaa2d505a6523a4e3538#d6fc6d458e08e7ae1008aaa2d505a6523a4e3538"
+source = "git+https://github.com/oxidecomputer/propolis?rev=722bedc069fed1fdd8e465cbc106cc3a684d744b#722bedc069fed1fdd8e465cbc106cc3a684d744b"
 dependencies = [
  "cpuid_profile_config",
  "serde",
@@ -2187,18 +2177,6 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "212d5dcb2a1ce06d81107c3d0ffa3121fe974b73f068c8282cb1c32328113b6c"
-dependencies = [
- "futures-util",
- "log",
- "tokio",
- "tungstenite 0.20.1",
-]
-
-[[package]]
-name = "tokio-tungstenite"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c83b561d025642014097b66e6c1bb422783339e0909e4429cde4749d1990bc38"
@@ -2206,7 +2184,7 @@ dependencies = [
  "futures-util",
  "log",
  "tokio",
- "tungstenite 0.21.0",
+ "tungstenite",
 ]
 
 [[package]]
@@ -2299,25 +2277,6 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
-
-[[package]]
-name = "tungstenite"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e3dac10fd62eaf6617d3a904ae222845979aec67c615d1c842b4002c7666fb9"
-dependencies = [
- "byteorder",
- "bytes",
- "data-encoding",
- "http 0.2.11",
- "httparse",
- "log",
- "rand",
- "sha1",
- "thiserror",
- "url",
- "utf-8",
-]
 
 [[package]]
 name = "tungstenite"
