@@ -29,6 +29,8 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::{sleep, Duration};
 
 #[macro_export]
@@ -151,6 +153,8 @@ pub struct Node {
     pub reserved: usize,
     /// How to create the backing of the main disk.
     pub primary_disk_backing: PrimaryDiskBacking,
+    /// VNC port to use
+    pub vnc_port: Option<u16>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -252,12 +256,14 @@ impl Runner {
         match std::env::var("RUST_LOG") {
             Ok(s) => {
                 if s.is_empty() {
-                    std::env::set_var("RUST_LOG", "info");
+                    unsafe {
+                        std::env::set_var("RUST_LOG", "info");
+                    }
                 }
             }
-            _ => {
+            _ => unsafe {
                 std::env::set_var("RUST_LOG", "info");
-            }
+            },
         }
 
         let decorator = slog_term::TermDecorator::new().build();
@@ -303,6 +309,7 @@ impl Runner {
             do_setup: true,
             reserved: 20,
             primary_disk_backing: PrimaryDiskBacking::Zvol,
+            vnc_port: None,
         };
         self.deployment.nodes.push(n);
         r
@@ -576,15 +583,7 @@ impl Runner {
 
         let mut fs = Vec::new();
         for n in self.deployment.nodes.iter() {
-            let port = match portpicker::pick_unused_port() {
-                Some(p) => p,
-                None => return Err(Error::NoPorts),
-            };
-            let vnc_port = match portpicker::pick_unused_port() {
-                Some(p) => p,
-                None => return Err(Error::NoPorts),
-            };
-            fs.push(n.launch(self, port as u32, vnc_port as u32));
+            fs.push(n.launch(self));
         }
         for x in join_all(fs).await {
             x?;
@@ -1058,25 +1057,13 @@ impl Node {
         );
     }
 
-    async fn launch(
-        &self,
-        r: &Runner,
-        port: u32,
-        vnc_port: u32,
-    ) -> Result<(), Error> {
+    async fn launch(&self, r: &Runner) -> Result<(), Error> {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
-        launch_vm(
-            &r.log,
-            &r.propolis_binary,
-            port,
-            vnc_port,
-            &id,
-            self,
-            &r.falcon_dir,
-        )
-        .await?;
+        let port =
+            launch_vm(&r.log, &r.propolis_binary, &id, self, &r.falcon_dir)
+                .await?;
 
         if !self.do_setup {
             return Ok(());
@@ -1332,22 +1319,13 @@ impl ExtLink {
 pub(crate) async fn launch_vm(
     log: &Logger,
     propolis_binary: &str,
-    port: u32,
-    vnc_port: u32,
     id: &uuid::Uuid,
     node: &Node,
     falcon_dir: &Utf8Path,
-) -> Result<(), Error> {
+) -> Result<u16, Error> {
     // launch propolis-server
 
     let mut path = falcon_dir.to_path_buf();
-    path.push(format!("{}.port", node.name));
-    fs::write(&path, port.to_string())?;
-    path.pop();
-    path.push(format!("{}.vnc_port", node.name));
-    fs::write(&path, vnc_port.to_string())?;
-    path.pop();
-
     path.push(format!("{}.out", node.name));
     let stdout = fs::File::create(&path)?;
     path.pop();
@@ -1356,22 +1334,27 @@ pub(crate) async fn launch_vm(
     path.pop();
     path.push(format!("{}.toml", node.name));
     let config = path.clone();
-    let sockaddr = format!("[::]:{}", port);
-    let vnc_sockaddr = format!("[::]:{}", vnc_port);
+    let sockaddr = String::from("[::]:0");
     let mut cmd = Command::new(propolis_binary);
-    cmd.args([
-        "run",
-        config.as_ref(),
-        sockaddr.as_ref(),
-        vnc_sockaddr.as_ref(),
-    ])
-    .stdout(stdout)
-    .stderr(stderr);
+    let mut args =
+        vec!["run".to_string(), config.into_string(), sockaddr.clone()];
+    if let Some(vnc_port) = node.vnc_port {
+        args.push(format!("[::]:{}", vnc_port));
+    }
+    cmd.args(&args).stdout(stdout).stderr(stderr);
     let child = cmd.spawn()?;
     path.pop();
 
     path.push(format!("{}.pid", node.name));
     fs::write(&path, child.id().to_string())?;
+    path.pop();
+
+    let port = find_propolis_port_in_log(format!(".falcon/{}.out", node.name))
+        .await
+        .map_err(|e| anyhow::anyhow!("find propolis port in log: {e}"))?;
+
+    path.push(format!("{}.port", node.name));
+    fs::write(&path, port.to_string())?;
     path.pop();
 
     info!(
@@ -1452,7 +1435,7 @@ pub(crate) async fn launch_vm(
         .send()
         .await?;
 
-    Ok(())
+    Ok(port)
 }
 
 pub(crate) fn dataset() -> String {
@@ -1473,4 +1456,33 @@ where
         std::thread::sleep(Duration::from_secs(1));
     }
     Ok(f()?)
+}
+
+async fn find_propolis_port_in_log(
+    logfile: String,
+) -> Result<u16, anyhow::Error> {
+    let re = regex::Regex::new(r#""local_addr":"\[::1?\]:([0-9]+)""#).unwrap();
+    let mut reader = BufReader::new(File::open(&logfile).await?);
+    let mut lines = reader.lines();
+    loop {
+        match lines.next_line().await? {
+            Some(line) => {
+                if let Some(cap) = re.captures(&line) {
+                    // unwrap on get(1) should be ok, since captures() returns
+                    // `None` if there are no matches found
+                    let port = cap.get(1).unwrap();
+                    let result = port.as_str().parse::<u16>()?;
+                    return Ok(result);
+                }
+            }
+            None => {
+                sleep(Duration::from_millis(10)).await;
+
+                // We might have gotten a partial line; close the file, reopen
+                // it, and start reading again from the beginning.
+                reader = BufReader::new(File::open(&logfile).await?);
+                lines = reader.lines();
+            }
+        }
+    }
 }

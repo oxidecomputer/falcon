@@ -713,29 +713,12 @@ async fn hyperstart(
         Some(node) => node,
     };
 
-    path.push(format!("{name}.port"));
-    let port: u32 = fs::read_to_string(&path)?.trim_end().parse()?;
-    path.pop();
-
-    path.push(format!("{name}.vnc_port"));
-    let vnc_port: u32 = fs::read_to_string(&path)?.trim_end().parse()?;
-    path.pop();
-
     path.push(format!("{name}.uuid"));
     let id: uuid::Uuid = fs::read_to_string(&path)?.trim_end().parse()?;
     path.pop();
     let log = create_logger();
 
-    crate::launch_vm(
-        &log,
-        &propolis_binary,
-        port,
-        vnc_port,
-        &id,
-        node,
-        falcon_dir,
-    )
-    .await?;
+    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir).await?;
 
     Ok(())
 }
