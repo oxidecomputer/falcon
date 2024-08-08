@@ -31,7 +31,7 @@ use std::process::Command;
 use std::str::FromStr;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 
 #[macro_export]
 macro_rules! node {
@@ -1459,6 +1459,16 @@ where
 }
 
 async fn find_propolis_port_in_log(
+    logfile: String,
+) -> Result<u16, anyhow::Error> {
+    let timeout = Instant::now() + Duration::from_secs(10);
+    let port =
+        tokio::time::timeout_at(timeout, do_find_propolis_port_in_log(logfile))
+            .await??;
+    Ok(port)
+}
+
+async fn do_find_propolis_port_in_log(
     logfile: String,
 ) -> Result<u16, anyhow::Error> {
     let re = regex::Regex::new(r#""local_addr":"\[::1?\]:([0-9]+)""#).unwrap();
