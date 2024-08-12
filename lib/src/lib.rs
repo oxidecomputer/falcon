@@ -1112,6 +1112,10 @@ impl Node {
             };
             sc.exec(&mut ws, cmd).await?;
             sc.exec(&mut ws, "cd".into()).await?;
+            info!(
+                r.log,
+                "{}: finished mounting {}", self.name, mount.destination
+            );
         }
 
         // set hostname
@@ -1131,7 +1135,9 @@ impl Node {
         sc.exec(&mut ws, cmd).await?;
 
         // log out after finishing setup
+        info!(r.log, "{}: logging out", self.name);
         sc.logout(&mut ws).await?;
+        info!(r.log, "{}: logged out", self.name);
 
         Ok(())
     }
