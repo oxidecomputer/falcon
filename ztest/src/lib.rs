@@ -2,8 +2,9 @@ use anyhow::{anyhow, Result};
 use libnet::{
     connect_simnet_peers, create_ipaddr, create_simnet_link, create_vnic_link,
     delete_route, enable_v6_link_local, ensure_route_present, get_ipaddr_info,
-    DropIp, DropLink, Ipv4Net, Ipv6Net, LinkFlags, LinkHandle,
+    DropIp, DropLink, LinkFlags, LinkHandle,
 };
+use oxnet::{Ipv4Net, Ipv6Net};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
