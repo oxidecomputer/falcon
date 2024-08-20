@@ -315,6 +315,12 @@ impl Runner {
         r
     }
 
+    pub fn find_node(&self, name: &str) -> Option<NodeRef> {
+        Some(NodeRef {
+            index: self.deployment.nodes.iter().position(|x| x.name == name)?,
+        })
+    }
+
     pub fn all_nodes(&self) -> Vec<NodeRef> {
         let mut result = Vec::new();
         for index in 0..self.deployment.nodes.len() {
