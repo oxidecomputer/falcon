@@ -1464,7 +1464,12 @@ async fn find_propolis_port_in_log(
     let timeout = Instant::now() + Duration::from_secs(10);
     let port =
         tokio::time::timeout_at(timeout, do_find_propolis_port_in_log(logfile))
-            .await??;
+            .await?
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "timed out waiting to find propolis port in its log: {e}"
+                )
+            })?;
     Ok(port)
 }
 
