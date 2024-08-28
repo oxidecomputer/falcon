@@ -13,9 +13,12 @@ pub mod error;
 pub mod serial;
 pub mod unit;
 
+use anyhow::Context;
 use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
+use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use propolis_client::types::InstanceMetadata;
 use propolis_server_config::{BlockDevice, BlockOpts, Device};
 use ron::ser::{to_string_pretty, PrettyConfig};
@@ -24,14 +27,18 @@ use slog::Drain;
 use slog::{debug, error, info, warn, Logger};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::BufWriter;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::{sleep, Duration, Instant};
+use xz2::read::XzDecoder;
 
 #[macro_export]
 macro_rules! node {
@@ -531,7 +538,7 @@ impl Runner {
     /// set up the serial console for each VM and, run any user defined exec
     /// statements.
     pub async fn launch(&self) -> Result<(), Error> {
-        self.preflight()?;
+        self.preflight().await?;
         match self.do_launch().await {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -541,7 +548,7 @@ impl Runner {
         }
     }
 
-    fn preflight(&self) -> Result<(), Error> {
+    async fn preflight(&self) -> Result<(), Error> {
         // Verify all required executables are discoverable.
         let out = Command::new(&self.propolis_binary).args(["-V"]).output();
         if out.is_err() {
@@ -562,7 +569,7 @@ impl Runner {
         fs::write(&topo_path, out)?;
 
         for n in self.deployment.nodes.iter() {
-            n.preflight(self)?;
+            n.preflight(self).await?;
         }
 
         Ok(())
@@ -739,9 +746,11 @@ impl Drop for Runner {
 }
 
 impl Node {
-    fn preflight(&self, r: &Runner) -> Result<(), Error> {
+    async fn preflight(&self, r: &Runner) -> Result<(), Error> {
         let mut devices = BTreeMap::new();
         let mut block_devs = BTreeMap::new();
+
+        self.try_ensure_base_image(&r.log).await?;
 
         let backing = match self.primary_disk_backing {
             PrimaryDiskBacking::Zvol => self.create_zvol_backing(r)?,
@@ -935,6 +944,207 @@ impl Node {
         path.push(format!("{}.toml", self.name));
         fs::write(&path, config_toml)?;
 
+        Ok(())
+    }
+
+    async fn try_ensure_base_image(&self, log: &Logger) -> Result<(), Error> {
+        match Command::new(ZFS_BIN)
+            .args([
+                "list",
+                "-t",
+                "snapshot",
+                format!("{}/img/{}@base", self.dataset, self.image).as_str(),
+            ])
+            .output()
+        {
+            Ok(output) if output.status.success() => Ok(()),
+            _ => {
+                info!(
+                    log,
+                    "base image for {} does not exist, attempting to install",
+                    self.image
+                );
+                self.try_install_base_image(log).await
+            }
+        }
+    }
+
+    async fn try_install_base_image(&self, log: &Logger) -> Result<(), Error> {
+        let iname = format!("{}_0.raw.xz", self.image);
+        let path = format!("/tmp/{iname}");
+        let extracted = path.strip_suffix(".xz").unwrap();
+        self.try_download_base_image(log, iname.as_str(), path.as_str())
+            .await?;
+        let fsize = Self::try_extract_image(log, path.as_str(), extracted)?;
+        self.try_create_zfs_volume_for_image(log, fsize, extracted)?;
+        Ok(())
+    }
+
+    fn try_create_zfs_volume_for_image(
+        &self,
+        log: &Logger,
+        fsize: usize,
+        source: &str,
+    ) -> Result<(), Error> {
+        let zpath = format!("{}/img/{}", self.dataset, self.image);
+        let bsize = fsize + 4096 - fsize % 4096;
+        info!(log, "creating zvol {zpath} of size {bsize}");
+        let out = Command::new(ZFS_BIN)
+            .args([
+                "create",
+                "-p",
+                "-V",
+                &bsize.to_string(),
+                "-o",
+                "volblocksize=4k",
+                zpath.as_str(),
+            ])
+            .output()
+            .context("zfs create volume")?;
+
+        if !out.status.success() {
+            return Err(Error::Exec(format!(
+                "zfs create vol: {} {}",
+                String::from_utf8_lossy(out.stdout.as_slice()),
+                String::from_utf8_lossy(out.stderr.as_slice())
+            )));
+        }
+
+        info!(log, "copying image data to zvol");
+        let source = std::fs::File::open(source)?;
+        let dst = OpenOptions::new().write(true).open(&format!(
+            "/dev/zvol/rdsk/{}/img/{}",
+            self.dataset, self.image
+        ))?;
+        let pb = Self::new_progress_bar();
+        pb.inc_length(dst.metadata().context("zvol dst metadata")?.len());
+        let mut dst = BufWriter::with_capacity(1024 * 1024, dst);
+
+        std::io::copy(&mut pb.wrap_read(source), &mut dst)
+            .context("copy image to zfs vol")?;
+
+        pb.finish();
+
+        let spath = format!("{}/img/{}@base", self.dataset, self.image);
+        info!(log, "creating zfs snapshot {spath}");
+        let out = Command::new(ZFS_BIN)
+            .args(["snapshot", spath.as_str()])
+            .output()
+            .context("zfs create snapshot")?;
+        if !out.status.success() {
+            return Err(Error::Exec(format!(
+                "zfs create snapshot: {} {}",
+                String::from_utf8_lossy(out.stdout.as_slice()),
+                String::from_utf8_lossy(out.stderr.as_slice())
+            )));
+        }
+        Ok(())
+    }
+
+    fn try_extract_image(
+        log: &Logger,
+        from: &str,
+        to: &str,
+    ) -> Result<usize, Error> {
+        if Path::new(to).exists() {
+            info!(log, "image already extracted");
+            let file = std::fs::File::open(to)?;
+            return Ok(file
+                .metadata()
+                .context("get file metadata")?
+                .size()
+                .try_into()
+                .context("file size as usize")?);
+        }
+        info!(log, "extracting image to {to}");
+        let pb = Self::new_progress_bar();
+        let in_file = std::fs::File::open(from)?;
+        let len = in_file
+            .metadata()
+            .context("compressed image metadata")?
+            .len();
+        pb.inc_length(len);
+        let in_file = pb.wrap_read(in_file);
+        let mut dec = XzDecoder::new(in_file);
+        let mut outfile = std::fs::File::create(to)?;
+        std::io::copy(&mut dec, &mut outfile)?;
+        pb.finish();
+        Ok(outfile
+            .metadata()
+            .context("get file metadata")?
+            .size()
+            .try_into()
+            .context("file size as usize")?)
+    }
+
+    fn new_progress_bar() -> ProgressBar {
+        let pb = ProgressBar::new(0);
+        let sty = ProgressStyle::with_template(
+            "[{elapsed_precise}] \
+            {bar:40.cyan/blue} \
+            {bytes}/{total_bytes} \
+            {msg}",
+        )
+        .unwrap()
+        .progress_chars("##-");
+        pb.set_style(sty);
+        pb
+    }
+
+    async fn try_download_base_image(
+        &self,
+        log: &Logger,
+        iname: &str,
+        path: &str,
+    ) -> Result<(), Error> {
+        if Path::new(path).exists() {
+            info!(log, "image already downloaded");
+            return Ok(());
+        }
+        let url = format!(
+            "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/{iname}"
+        );
+        info!(log, "trying to download {url}");
+
+        let pb = Self::new_progress_bar();
+
+        let client = reqwest::ClientBuilder::new()
+            .timeout(Duration::from_secs(3600))
+            .tcp_keepalive(Duration::from_secs(3600))
+            .connect_timeout(Duration::from_secs(15))
+            .build()
+            .unwrap();
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .with_context(|| format!("failed to get url {url}"))?;
+
+        if !response.status().is_success() {
+            Err(anyhow::anyhow!(
+                "failed to download image: {}",
+                response.status()
+            ))?;
+        }
+        pb.inc_length(
+            response
+                .content_length()
+                .ok_or_else(|| anyhow::anyhow!("Missing content length"))?,
+        );
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .with_context(|| format!("failed to create {path}"))?;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.with_context(|| {
+                format!("failed reading response from {url}")
+            })?;
+            file.write_all(&chunk)
+                .await
+                .with_context(|| format!("failed writing {path:?}"))?;
+            pb.inc(chunk.len().try_into().unwrap());
+        }
+        pb.finish();
         Ok(())
     }
 
