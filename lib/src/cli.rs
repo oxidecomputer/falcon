@@ -358,26 +358,26 @@ fn info(r: &Runner) -> anyhow::Result<()> {
 }
 
 async fn preflight(r: &Runner) {
-    if let Err(e) = r.preflight() {
-        println!("{}", e)
+    if let Err(e) = r.preflight().await {
+        eprintln!("error: {}", e)
     }
 }
 
 async fn launch(r: &Runner) {
     if let Err(e) = r.launch().await {
-        println!("{}", e)
+        eprintln!("error: {}", e)
     }
 }
 
 async fn netcreate(r: &Runner) {
     if let Err(e) = r.net_launch().await {
-        println!("{}", e)
+        eprintln!("error: {}", e)
     }
 }
 
 fn netdestroy(r: &Runner) {
     if let Err(e) = r.net_destroy() {
-        println!("{}", e)
+        eprintln!("error: {}", e)
     }
 }
 

@@ -32,4 +32,6 @@ colored.workspace = true
 rand.workspace = true
 camino.workspace = true
 reqwest.workspace = true
+indicatif.workspace = true
+xz2.workspace = true
 anstyle = "1.0.4"
