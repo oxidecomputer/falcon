@@ -318,7 +318,7 @@ dependencies = [
 [[package]]
 name = "cpuid_profile_config"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=399ce1a82665397c756d626854e39c25505e4a62#399ce1a82665397c756d626854e39c25505e4a62"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5267be82e10d851a64196a8148893691b0b9f8ad#5267be82e10d851a64196a8148893691b0b9f8ad"
 dependencies = [
  "serde",
  "serde_derive",
@@ -1418,7 +1418,7 @@ dependencies = [
 [[package]]
 name = "propolis-client"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=399ce1a82665397c756d626854e39c25505e4a62#399ce1a82665397c756d626854e39c25505e4a62"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5267be82e10d851a64196a8148893691b0b9f8ad#5267be82e10d851a64196a8148893691b0b9f8ad"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -1439,7 +1439,7 @@ dependencies = [
 [[package]]
 name = "propolis-server-config"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=399ce1a82665397c756d626854e39c25505e4a62#399ce1a82665397c756d626854e39c25505e4a62"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5267be82e10d851a64196a8148893691b0b9f8ad#5267be82e10d851a64196a8148893691b0b9f8ad"
 dependencies = [
  "cpuid_profile_config",
  "serde",
