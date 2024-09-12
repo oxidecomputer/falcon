@@ -45,6 +45,10 @@ macro_rules! node {
     ($d:ident, $name:ident, $img:literal, $cores:literal, $mem:expr) => {
         let $name = $d.node(stringify!($name), $img, $cores, $mem);
     };
+
+    ($d:ident, $name:ident, $img:ident, $cores:literal, $mem:expr) => {
+        let $name = $d.node(stringify!($name), $img, $cores, $mem);
+    };
 }
 
 #[macro_export]

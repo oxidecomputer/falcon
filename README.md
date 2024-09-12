@@ -2,7 +2,7 @@
 
 **_Fast Assessment Laboratory for Computers On Networks_**
 
-Falcon is a Rust API for creating network topologies composed of 
+Falcon is a Rust API for creating network topologies composed of
 [Propolis](https://github.com/oxidecomputer/propolis) VMs interconnected by
 simnet links. It's designed to be used for both automated testing and as a
 development environment for networked systems.
@@ -52,8 +52,8 @@ async fn main() -> Result<(), Error> {
     let mut d = Runner::new("duo");
 
     // nodes
-    let violin = d.node("violin", "helios-2.3", 4, gb(4));
-    let piano = d.node("piano", "helios-2.3", 4, gb(4));
+    let violin = d.node("violin", "helios-2.5", 4, gb(4));
+    let piano = d.node("piano", "helios-2.5", 4, gb(4));
 
     // links
     d.link(violin, piano);
