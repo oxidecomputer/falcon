@@ -1016,7 +1016,7 @@ impl Node {
 
         info!(log, "copying image data to zvol");
         let source = std::fs::File::open(source)?;
-        let dst = OpenOptions::new().write(true).open(&format!(
+        let dst = OpenOptions::new().write(true).open(format!(
             "/dev/zvol/rdsk/{}/img/{}",
             self.dataset, self.image
         ))?;
