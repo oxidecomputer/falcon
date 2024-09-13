@@ -227,8 +227,8 @@ impl Zfs {
             .arg("create")
             .arg("-p")
             .arg("-o")
-            .arg(&format!("mountpoint=/{}", name))
-            .arg(&format!("rpool/{}", name))
+            .arg(format!("mountpoint=/{}", name))
+            .arg(format!("rpool/{}", name))
             .output()?;
         Ok(Self { name: name.into() })
     }
@@ -332,7 +332,7 @@ impl Drop for Zfs {
             .arg("zfs")
             .arg("destroy")
             .arg("-rf")
-            .arg(&format!("rpool/{}", self.name))
+            .arg(format!("rpool/{}", self.name))
             .output()
         {
             eprintln!("zfs drop failed: {}", e);

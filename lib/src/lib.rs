@@ -45,6 +45,10 @@ macro_rules! node {
     ($d:ident, $name:ident, $img:literal, $cores:literal, $mem:expr) => {
         let $name = $d.node(stringify!($name), $img, $cores, $mem);
     };
+
+    ($d:ident, $name:ident, $img:ident, $cores:literal, $mem:expr) => {
+        let $name = $d.node(stringify!($name), $img, $cores, $mem);
+    };
 }
 
 #[macro_export]
@@ -1012,7 +1016,7 @@ impl Node {
 
         info!(log, "copying image data to zvol");
         let source = std::fs::File::open(source)?;
-        let dst = OpenOptions::new().write(true).open(&format!(
+        let dst = OpenOptions::new().write(true).open(format!(
             "/dev/zvol/rdsk/{}/img/{}",
             self.dataset, self.image
         ))?;
