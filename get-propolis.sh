@@ -1,5 +1,5 @@
 #!/bin/bash
 
-curl -OL https://buildomat.eng.oxide.computer/wg/0/artefact/01J6W7HNVVWNXZKE0GFDC3MDG3/d6LnQXh0v9uk19YRRZzTG9ILNJD32nQe51QgzSQKCDdDZ2za/01J6W7J5HNW26WFAV7M6KYD43F/01J6W87ECGKJGAXDQFPYZ7JMJ4/propolis-server
+curl -OL https://buildomat.eng.oxide.computer/wg/0/artefact/01J8TPA802A5SHWPY5K05ZH2J3/ucXqZK2nT2qxxgI0vY5iygOCdEwguBoe9fk3cFrm4IOs9TLX/01J8TPAVRJDHEYKPEG07AHG51H/01J8TQ0QB5M510N99RWD7X55HT/propolis-server
 chmod +x propolis-server
 pfexec mv propolis-server /usr/bin/
