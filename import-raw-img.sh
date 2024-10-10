@@ -1,7 +1,9 @@
 #!/bin/bash
 
-set -e
-set -x
+set -o xtrace
+set -o errexit
+set -o pipefail
+set -o nounset
 
 dataset=${FALCON_DATASET:-rpool/falcon}
 
@@ -13,7 +15,7 @@ fi
 file=$1
 name=$2
 
-if [[ $FORCE == 1 ]]; then
+if [[ -n "${FORCE+x}" ]]; then
     echo "Deleting $name image"
     pfexec zfs destroy -r $dataset/img/$name || true
 fi

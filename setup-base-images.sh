@@ -20,7 +20,7 @@ pushd .img
 for img in $images; do
     name=${img%_*}
     file=$img.raw.xz
-    if [[ $FORCE == 1 ]]; then
+    if [[ -n "${FORCE+x}" ]]; then
         rm -f $file
         rm -rf $img.raw
         echo "Deleting $name image"
