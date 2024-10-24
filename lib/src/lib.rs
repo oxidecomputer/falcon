@@ -28,9 +28,8 @@ use slog::{debug, error, info, warn, Logger};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
-use std::io::BufWriter;
+use std::io::{Read, BufWriter};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
@@ -976,20 +975,30 @@ impl Node {
     async fn try_install_base_image(&self, log: &Logger) -> Result<(), Error> {
         let iname = format!("{}_0.raw.xz", self.image);
         let path = format!("/tmp/{iname}");
-        let extracted = path.strip_suffix(".xz").unwrap();
         self.try_download_base_image(log, iname.as_str(), path.as_str())
             .await?;
-        let fsize = Self::try_extract_image(log, path.as_str(), extracted)?;
-        self.try_create_zfs_volume_for_image(log, fsize, extracted)?;
+        self.try_extract_image_to_new_volume(log, path.as_str())?;
         Ok(())
     }
 
-    fn try_create_zfs_volume_for_image(
+    fn try_extract_image_to_new_volume(
         &self,
         log: &Logger,
-        fsize: usize,
-        source: &str,
+        from: &str,
     ) -> Result<(), Error> {
+        info!(log, "calculating image size");
+        let pb = Self::new_progress_bar();
+        let in_file = std::fs::File::open(from)?;
+        let len = in_file
+            .metadata()
+            .context("compressed image metadata")?
+            .len();
+        pb.inc_length(len);
+        let in_file = pb.wrap_read(in_file);
+        let dec = XzDecoder::new(in_file);
+        let fsize = dec.bytes().count();
+        pb.finish();
+
         let zpath = format!("{}/img/{}", self.dataset, self.image);
         let bsize = fsize + 4096 - fsize % 4096;
         info!(log, "creating zvol {zpath} of size {bsize}");
@@ -1014,8 +1023,10 @@ impl Node {
             )));
         }
 
-        info!(log, "copying image data to zvol");
-        let source = std::fs::File::open(source)?;
+        info!(log, "extracting image to zvol");
+        let in_file = std::fs::File::open(from)?;
+        let dec = XzDecoder::new(in_file);
+
         let dst = OpenOptions::new().write(true).open(format!(
             "/dev/zvol/rdsk/{}/img/{}",
             self.dataset, self.image
@@ -1024,7 +1035,7 @@ impl Node {
         pb.inc_length(dst.metadata().context("zvol dst metadata")?.len());
         let mut dst = BufWriter::with_capacity(1024 * 1024, dst);
 
-        std::io::copy(&mut pb.wrap_read(source), &mut dst)
+        std::io::copy(&mut pb.wrap_read(dec), &mut dst)
             .context("copy image to zfs vol")?;
 
         pb.finish();
@@ -1043,42 +1054,6 @@ impl Node {
             )));
         }
         Ok(())
-    }
-
-    fn try_extract_image(
-        log: &Logger,
-        from: &str,
-        to: &str,
-    ) -> Result<usize, Error> {
-        if Path::new(to).exists() {
-            info!(log, "image already extracted");
-            let file = std::fs::File::open(to)?;
-            return Ok(file
-                .metadata()
-                .context("get file metadata")?
-                .size()
-                .try_into()
-                .context("file size as usize")?);
-        }
-        info!(log, "extracting image to {to}");
-        let pb = Self::new_progress_bar();
-        let in_file = std::fs::File::open(from)?;
-        let len = in_file
-            .metadata()
-            .context("compressed image metadata")?
-            .len();
-        pb.inc_length(len);
-        let in_file = pb.wrap_read(in_file);
-        let mut dec = XzDecoder::new(in_file);
-        let mut outfile = std::fs::File::create(to)?;
-        std::io::copy(&mut dec, &mut outfile)?;
-        pb.finish();
-        Ok(outfile
-            .metadata()
-            .context("get file metadata")?
-            .size()
-            .try_into()
-            .context("file size as usize")?)
     }
 
     fn new_progress_bar() -> ProgressBar {
