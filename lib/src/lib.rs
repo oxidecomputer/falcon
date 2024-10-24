@@ -996,7 +996,8 @@ impl Node {
         pb.inc_length(len);
         let in_file = pb.wrap_read(in_file);
         let dec = XzDecoder::new(in_file);
-        let fsize = dec.bytes().count();
+        let buf_dec = BufReader::new(dec);
+        let fsize = buf_dec.bytes().count();
         pb.finish();
 
         let zpath = format!("{}/img/{}", self.dataset, self.image);
