@@ -996,7 +996,7 @@ impl Node {
         pb.inc_length(len);
         let in_file = pb.wrap_read(in_file);
         let dec = XzDecoder::new(in_file);
-        let buf_dec = BufReader::new(dec);
+        let buf_dec = std::io::BufReader::new(dec);
         let fsize = buf_dec.bytes().count();
         pb.finish();
 
