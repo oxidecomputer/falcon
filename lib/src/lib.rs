@@ -25,7 +25,8 @@ use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
 use slog::{debug, error, info, warn, Logger};
-use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
 use std::io::BufWriter;
@@ -209,6 +210,7 @@ pub struct Link {
 pub struct ExtLink {
     pub endpoint: Endpoint,
     pub host_ifx: String,
+    pub exclusive: bool,
 }
 
 /// Endpoint kind determines what type of device will be chosen to underpin a
@@ -479,17 +481,37 @@ impl Runner {
         self.deployment.nodes[n.index].primary_disk_backing = backing
     }
 
-    /// Create an external link attached to `host_ifx`.
+    /// Create an external link attached to `host_ifx` via a new VNIC.
     pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
+        self.ext_link_common(host_ifx, n, false);
+    }
+
+    /// Create an external link, consuming the link `host_ifx`.
+    pub fn ext_link_exclusive(
+        &mut self,
+        host_ifx: impl AsRef<str>,
+        n: NodeRef,
+    ) {
+        self.ext_link_common(host_ifx, n, true);
+    }
+
+    fn ext_link_common(
+        &mut self,
+        host_ifx: impl AsRef<str>,
+        n: NodeRef,
+        exclusive: bool,
+    ) {
         let endpoint = Endpoint {
             node: n,
             index: self.deployment.nodes[n.index].radix,
             kind: EndpointKind::Viona(None),
         };
         let host_ifx = host_ifx.as_ref().into();
-        self.deployment
-            .ext_links
-            .push(ExtLink { endpoint, host_ifx });
+        self.deployment.ext_links.push(ExtLink {
+            endpoint,
+            host_ifx,
+            exclusive,
+        });
         self.deployment.nodes[n.index].radix += 1;
     }
 
@@ -560,6 +582,26 @@ impl Runner {
                 "failed to find {} on PATH",
                 &self.propolis_binary
             )));
+        }
+
+        // validate that no external links are being jointly specified
+        // as exclusive and as parents of vnics.
+        let mut link_is_exclusive = HashMap::new();
+        for link in self.deployment.ext_links.iter() {
+            let entry = link_is_exclusive.entry(link.host_ifx.clone());
+
+            match entry {
+                Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(link.exclusive);
+                }
+                Entry::Occupied(occupied_entry) => {
+                    if link.exclusive || *occupied_entry.get() {
+                        return Err(Error::ExternalNicReused(
+                            link.host_ifx.clone(),
+                        ));
+                    }
+                }
+            }
         }
 
         // ensure falcon working dir
@@ -794,15 +836,19 @@ impl Node {
 
         let mut endpoints = Vec::new();
         for l in &d.links {
-            endpoints.extend_from_slice(&l.endpoints);
+            endpoints.push((None, l.endpoints[0].clone()));
+            endpoints.push((None, l.endpoints[1].clone()));
         }
         for l in &d.ext_links {
-            endpoints.push(l.endpoint.clone());
+            endpoints.push((
+                l.exclusive.then(|| l.host_ifx.clone()),
+                l.endpoint.clone(),
+            ));
         }
 
         let has_softnpu = endpoints
             .iter()
-            .any(|x| matches!(&x.kind, EndpointKind::SoftNPU(_)));
+            .any(|(_, x)| matches!(&x.kind, EndpointKind::SoftNPU(_)));
 
         if has_softnpu {
             let mut opts = BTreeMap::new();
@@ -836,7 +882,7 @@ impl Node {
             pci_index += 1;
         }
 
-        for e in &endpoints {
+        for (real_dev, e) in &endpoints {
             if d.nodes[e.node.index].name == self.name {
                 match &e.kind {
                     EndpointKind::Viona(_) => {
@@ -844,7 +890,12 @@ impl Node {
                         let mut opts = BTreeMap::new();
                         opts.insert(
                             "vnic".to_string(),
-                            toml::Value::String(d.vnic_link_name(e)),
+                            toml::Value::String(
+                                real_dev
+                                    .as_ref()
+                                    .cloned()
+                                    .unwrap_or_else(|| d.vnic_link_name(e)),
+                            ),
                         );
                         opts.insert(
                             "pci-path".to_string(),
@@ -1501,6 +1552,10 @@ impl Link {
 
 impl ExtLink {
     fn create(&self, r: &Runner) -> Result<(), Error> {
+        if self.exclusive {
+            return Ok(());
+        }
+
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         let host_ifx = libnet::LinkHandle::Name(self.host_ifx.clone());
@@ -1527,6 +1582,10 @@ impl ExtLink {
     }
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
+        if self.exclusive {
+            return Ok(());
+        }
+
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         info!(r.log, "destroying external link {}", &vnic_name);
