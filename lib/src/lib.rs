@@ -925,20 +925,15 @@ impl Node {
                             "pci-path".to_string(),
                             toml::Value::String(format!("0.{}.0", pci_index)),
                         );
-                        match macs {
-                            Some(macs) => {
-                                opts.insert(
-                                    "macs".to_string(),
-                                    toml::Value::Array(
-                                        macs.iter()
-                                            .map(|x| {
-                                                toml::Value::String(x.clone())
-                                            })
-                                            .collect(),
-                                    ),
-                                );
-                            }
-                            None => {}
+                        if let Some(macs) = macs {
+                            opts.insert(
+                                "macs".to_string(),
+                                toml::Value::Array(
+                                    macs.iter()
+                                        .map(|x| toml::Value::String(x.clone()))
+                                        .collect(),
+                                ),
+                            );
                         }
                         devices.insert(
                             format!("sidemux{}", sidemux_index),
@@ -957,15 +952,12 @@ impl Node {
                             "vnic".to_string(),
                             toml::Value::String(d.vnic_link_name(e)),
                         );
-                        match mac {
-                            Some(ref mac) => {
-                                opts.insert(
-                                    "mac".to_string(),
-                                    toml::Value::String(mac.clone()),
-                                );
-                            }
-                            None => {}
-                        };
+                        if let Some(ref mac) = mac {
+                            opts.insert(
+                                "mac".to_string(),
+                                toml::Value::String(mac.clone()),
+                            );
+                        }
                         devices.insert(
                             format!("port{}", softnpu_index),
                             propolis_server_config::Device {
