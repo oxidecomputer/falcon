@@ -42,6 +42,6 @@ colored = "2"
 rand = "0.8"
 camino = { version = "1.1.1", features = ["serde1"] }
 reqwest = "0.12.7"
-oxnet = { git = "https://github.com/oxidecomputer/oxnet" }
+oxnet = { version = "0.1.0", default-features = false }
 indicatif = "0.17.8"
 xz2 = "0.1.7"
