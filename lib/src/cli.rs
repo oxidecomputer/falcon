@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use clap::Parser;
 
+use crate::NodeRef;
 use crate::{dataset, error::Error, Deployment, Runner, DEFAULT_FALCON_DIR};
 
 pub enum RunMode {
@@ -57,6 +58,8 @@ enum SubCommand {
     Serial(CmdSerial),
     #[clap(about = "display topology information")]
     Info(CmdInfo),
+    #[clap(about = "display node IPs")]
+    Ips(CmdIps),
     #[clap(about = "reboot a vm")]
     Reboot(CmdReboot),
     #[clap(about = "stop a vm's hypervisor")]
@@ -71,6 +74,8 @@ enum SubCommand {
     Snapshot(CmdSnapshot),
     #[clap(about = "execute a command on a node")]
     Exec(CmdExec),
+    #[clap(about = "execute a command on each node")]
+    MultiExec(CmdMultiExec),
 }
 
 #[derive(Parser)]
@@ -185,8 +190,24 @@ struct CmdInfo {}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
+struct CmdIps {
+    prefix: String,
+}
+
+#[derive(Parser)]
+#[clap(infer_subcommands = true)]
 struct CmdExec {
     node: String,
+    command: String,
+
+    /// The path of the falcon output directory
+    #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
+    falcon_dir: Utf8PathBuf,
+}
+
+#[derive(Parser)]
+#[clap(infer_subcommands = true)]
+struct CmdMultiExec {
     command: String,
 
     /// The path of the falcon output directory
@@ -241,6 +262,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
         }
         SubCommand::Info(_) => {
             info(r)?;
+            Ok(RunMode::Unspec)
+        }
+        SubCommand::Ips(ref c) => {
+            ips(r, &c.prefix).await?;
             Ok(RunMode::Unspec)
         }
         SubCommand::Reboot(ref c) => {
@@ -305,6 +330,11 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             exec(r, &c.node, &c.command).await?;
             Ok(RunMode::Unspec)
         }
+        SubCommand::MultiExec(ref c) => {
+            r.falcon_dir = c.falcon_dir.clone();
+            multi_exec(r, &c.command).await?;
+            Ok(RunMode::Unspec)
+        }
     }
 }
 
@@ -352,6 +382,50 @@ fn info(r: &Runner) -> anyhow::Result<()> {
             }
         }
     }
+    tw.flush()?;
+
+    Ok(())
+}
+
+async fn ips(r: &Runner, prefix: &str) -> anyhow::Result<()> {
+    let mut tw = TabWriter::new(stdout());
+
+    println!("{} {}", "name:".dimmed(), r.deployment.name);
+
+    println!("{}", "Nodes".bright_black());
+    writeln!(
+        &mut tw,
+        "{}\t{}\t{}",
+        "Name".dimmed(),
+        "Image".dimmed(),
+        "External IP".dimmed(),
+    )?;
+
+    for (index, x) in r.deployment.nodes.iter().enumerate() {
+        let addr = if x.image.starts_with("debian-11.")
+            || x.image.starts_with("arista-1.")
+        {
+            r.exec(
+                NodeRef { index },
+                &format!(
+                    "ip -br addr show scope global | grep {prefix} | \
+                    awk '{{ print $3 }}'",
+                ),
+            )
+            .await?
+        } else if x.image.starts_with("helios-2.") {
+            r.exec(
+                NodeRef { index },
+                &format!("ipadm show-addr -p -o addr | grep {prefix}"),
+            )
+            .await?
+        } else {
+            String::from("n/a")
+        };
+
+        writeln!(&mut tw, "{}\t{}\t{}", &x.name, &x.image, &addr)?;
+    }
+
     tw.flush()?;
 
     Ok(())
@@ -725,6 +799,30 @@ async fn hyperstart(
 
 async fn exec(r: &Runner, node: &str, command: &str) -> Result<(), Error> {
     println!("{}", r.do_exec(node, command).await?);
+    Ok(())
+}
+
+async fn multi_exec(r: &Runner, command: &str) -> Result<(), Error> {
+    let mut tw = TabWriter::new(stdout());
+
+    println!("{} {}", "name:".dimmed(), r.deployment.name);
+
+    println!("{}", "Nodes".bright_black());
+    writeln!(
+        &mut tw,
+        "{}\t{}\t{}",
+        "Name".dimmed(),
+        "Image".dimmed(),
+        "Output".dimmed(),
+    )?;
+
+    for (index, x) in r.deployment.nodes.iter().enumerate() {
+        let o = r.exec(NodeRef { index }, command).await?;
+        writeln!(&mut tw, "{}\t{}\t{}", &x.name, &x.image, &o)?;
+    }
+
+    tw.flush()?;
+
     Ok(())
 }
 
