@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use clap::Parser;
 
+use crate::Node;
 use crate::NodeRef;
 use crate::{dataset, error::Error, Deployment, Runner, DEFAULT_FALCON_DIR};
 
@@ -58,6 +59,8 @@ enum SubCommand {
     Serial(CmdSerial),
     #[clap(about = "display topology information")]
     Info(CmdInfo),
+    #[clap(about = "display one node's IP")]
+    Ip(CmdIp),
     #[clap(about = "display node IPs")]
     Ips(CmdIps),
     #[clap(about = "reboot a vm")]
@@ -190,6 +193,13 @@ struct CmdInfo {}
 
 #[derive(Parser)]
 #[clap(infer_subcommands = true)]
+struct CmdIp {
+    node: String,
+    prefix: String,
+}
+
+#[derive(Parser)]
+#[clap(infer_subcommands = true)]
 struct CmdIps {
     prefix: String,
 }
@@ -262,6 +272,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
         }
         SubCommand::Info(_) => {
             info(r)?;
+            Ok(RunMode::Unspec)
+        }
+        SubCommand::Ip(ref c) => {
+            ip(r, &c.node, &c.prefix).await?;
             Ok(RunMode::Unspec)
         }
         SubCommand::Ips(ref c) => {
@@ -387,6 +401,50 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn get_ip(
+    r: &Runner,
+    index: usize,
+    node: &Node,
+    prefix: &str,
+) -> anyhow::Result<String> {
+    let addr = if node.image.starts_with("debian-11.")
+        || node.image.starts_with("arista-1.")
+    {
+        r.exec(
+            NodeRef { index },
+            &format!(
+                "ip -br addr show scope global | grep {prefix} | \
+                awk '{{ print $3 }}'",
+            ),
+        )
+        .await?
+    } else if node.image.starts_with("helios-2.") {
+        r.exec(
+            NodeRef { index },
+            &format!("ipadm show-addr -p -o addr | grep {prefix}"),
+        )
+        .await?
+    } else {
+        String::from("n/a")
+    };
+
+    Ok(addr)
+}
+
+async fn ip(r: &Runner, name: &str, prefix: &str) -> anyhow::Result<()> {
+    for (index, node) in r.deployment.nodes.iter().enumerate() {
+        if node.name != name {
+            continue;
+        }
+
+        let addr = get_ip(r, index, node, prefix).await?;
+
+        println!("{}", &addr);
+    }
+
+    Ok(())
+}
+
 async fn ips(r: &Runner, prefix: &str) -> anyhow::Result<()> {
     let mut tw = TabWriter::new(stdout());
 
@@ -401,29 +459,10 @@ async fn ips(r: &Runner, prefix: &str) -> anyhow::Result<()> {
         "External IP".dimmed(),
     )?;
 
-    for (index, x) in r.deployment.nodes.iter().enumerate() {
-        let addr = if x.image.starts_with("debian-11.")
-            || x.image.starts_with("arista-1.")
-        {
-            r.exec(
-                NodeRef { index },
-                &format!(
-                    "ip -br addr show scope global | grep {prefix} | \
-                    awk '{{ print $3 }}'",
-                ),
-            )
-            .await?
-        } else if x.image.starts_with("helios-2.") {
-            r.exec(
-                NodeRef { index },
-                &format!("ipadm show-addr -p -o addr | grep {prefix}"),
-            )
-            .await?
-        } else {
-            String::from("n/a")
-        };
+    for (index, node) in r.deployment.nodes.iter().enumerate() {
+        let addr = get_ip(r, index, node, prefix).await?;
 
-        writeln!(&mut tw, "{}\t{}\t{}", &x.name, &x.image, &addr)?;
+        writeln!(&mut tw, "{}\t{}\t{}", &node.name, &node.image, &addr)?;
     }
 
     tw.flush()?;
