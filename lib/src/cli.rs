@@ -219,7 +219,8 @@ struct CmdExec {
 pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
     #[derive(Parser)]
     struct Dummy {}
-    run_with_extra(r, |_: Dummy| std::future::ready(Ok(()))).await
+    run_with_extra(r, |_: &mut Runner, _: Dummy| std::future::ready(Ok(())))
+        .await
 }
 
 /// Entry point for a command line application. Will parse command line
@@ -248,7 +249,7 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
 ///     Something,
 /// }
 ///
-/// async fn extra_stuff(opts: OtherOpts) -> Result<(), Error> {
+/// async fn extra_stuff(r: &mut Runner, opts: OtherOpts) -> Result<(), Error> {
 ///     match opts.subcmd {
 ///         SubCommand::Something => {
 ///             // some topology specific command!
@@ -269,13 +270,13 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
 ///
 /// run_with_extra(&mut r, extra_stuff);
 /// ```
-pub async fn run_with_extra<T, F, O>(
-    r: &mut Runner,
+pub async fn run_with_extra<'a, T, F, O>(
+    r: &'a mut Runner,
     extra: F,
 ) -> Result<RunMode, Error>
 where
     T: clap::Args,
-    F: FnOnce(T) -> O,
+    F: FnOnce(&'a mut Runner, T) -> O,
     O: Future<Output = Result<(), Error>>,
 {
     r.persistent = true;
@@ -371,7 +372,7 @@ where
             Ok(RunMode::Unspec)
         }
         SubCommand::Extra(c) => {
-            extra(c).await?;
+            extra(r, c).await?;
             Ok(RunMode::Unspec)
         }
     }
