@@ -45,3 +45,4 @@ reqwest = "0.12.7"
 oxnet = { version = "0.1.0", default-features = false }
 indicatif = "0.17.8"
 xz2 = "0.1.7"
+camino-tempfile = "1.1.1"

@@ -35,3 +35,6 @@ reqwest.workspace = true
 indicatif.workspace = true
 xz2.workspace = true
 anstyle = "1.0.4"
+
+[dev-dependencies]
+camino-tempfile.workspace = true
