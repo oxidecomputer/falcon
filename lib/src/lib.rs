@@ -1566,9 +1566,10 @@ pub(crate) async fn launch_vm(
     fs::write(&path, child.id().to_string())?;
     path.pop();
 
-    let port = find_propolis_port_in_log(format!("{}/{}.out", falcon_dir, node.name))
-        .await
-        .map_err(|e| anyhow::anyhow!("find propolis port in log: {e}"))?;
+    let port =
+        find_propolis_port_in_log(format!("{}/{}.out", falcon_dir, node.name))
+            .await
+            .map_err(|e| anyhow::anyhow!("find propolis port in log: {e}"))?;
 
     path.push(format!("{}.port", node.name));
     fs::write(&path, port.to_string())?;
