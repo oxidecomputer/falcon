@@ -219,11 +219,6 @@ pub enum EndpointKind {
     /// mac.
     Viona(Option<String>),
 
-    /// Use a Sidecar multiplexing device. If you are unsure, this is not what
-    /// you want. The usize parameter indicates radix of the connected Sidecar
-    /// device. May optionally specify macs for sidemux ports.
-    Sidemux(usize, Option<Vec<String>>),
-
     /// A link connected to a SoftNPU device with an optional MAC specification
     SoftNPU(Option<String>),
 }
@@ -232,7 +227,6 @@ impl EndpointKind {
     fn designator(&self) -> &'static str {
         match self {
             Self::Viona(_) => "vn",
-            Self::Sidemux(_, _) => "sm",
             Self::SoftNPU(_) => "sn",
         }
     }
@@ -376,38 +370,6 @@ impl Runner {
         self.deployment.links.push(l);
         self.deployment.nodes[a.index].radix += 1;
         self.deployment.nodes[b.index].radix += 1;
-        r
-    }
-
-    /// Create a sidecar controller link with the provided radix.
-    ///
-    /// The sidecar node will get a regular bhyve/viona endpoint. The controller
-    /// node will get a sidemux device with the provided radix.
-    pub fn sidecar_link(
-        &mut self,
-        sidecar: NodeRef,
-        controller: NodeRef,
-        radix: usize,
-        macs: Option<Vec<String>>,
-    ) -> LinkRef {
-        let r = LinkRef {
-            _index: self.deployment.links.len(),
-        };
-        let l = Link {
-            endpoints: [
-                Endpoint {
-                    node: sidecar,
-                    index: self.bump_radix(sidecar),
-                    kind: EndpointKind::Viona(None),
-                },
-                Endpoint {
-                    node: controller,
-                    index: self.bump_radix(controller),
-                    kind: EndpointKind::Sidemux(radix, macs),
-                },
-            ],
-        };
-        self.deployment.links.push(l);
         r
     }
 
@@ -790,7 +752,6 @@ impl Node {
         //let mut links: Vec<String> = Vec::new();
         let mut viona_index = 0;
         let mut softnpu_index = 0;
-        let mut sidemux_index = 0;
 
         let mut endpoints = Vec::new();
         for l in &d.links {
@@ -860,41 +821,7 @@ impl Node {
                         viona_index += 1;
                         pci_index += 1;
                     }
-                    EndpointKind::Sidemux(radix, macs) => {
-                        let mut opts = BTreeMap::new();
-                        opts.insert(
-                            "radix".to_string(),
-                            toml::Value::Integer((*radix).try_into()?),
-                        );
-                        opts.insert(
-                            "link-name".to_string(),
-                            toml::Value::String(d.vnic_link_name(e)),
-                        );
-                        opts.insert(
-                            "pci-path".to_string(),
-                            toml::Value::String(format!("0.{}.0", pci_index)),
-                        );
-                        if let Some(macs) = macs {
-                            opts.insert(
-                                "macs".to_string(),
-                                toml::Value::Array(
-                                    macs.iter()
-                                        .map(|x| toml::Value::String(x.clone()))
-                                        .collect(),
-                                ),
-                            );
-                        }
-                        devices.insert(
-                            format!("sidemux{}", sidemux_index),
-                            propolis_server_config::Device {
-                                driver: "sidemux".into(),
-                                options: opts,
-                            },
-                        );
-                        sidemux_index += 1;
-                        // +1 on the radix is for the pci port
-                        pci_index += radix + 1;
-                    }
+
                     EndpointKind::SoftNPU(mac) => {
                         let mut opts = BTreeMap::new();
                         opts.insert(
