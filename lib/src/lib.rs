@@ -292,6 +292,11 @@ impl Runner {
         }
     }
 
+    pub fn set_falcon_dir(&mut self, dir: &Utf8Path) {
+        self.falcon_dir = dir.to_string().into();
+        info!(self.log, "set falcon dir to {}", self.falcon_dir);
+    }
+
     /// Create a new node within this deployment with the given name. Names must
     /// conform to `[A-Za-z]?[A-Za-z0-9_]*`
     pub fn node(
@@ -648,7 +653,7 @@ impl Runner {
             .output()?;
 
         // Destroy workspace
-        info!(self.log, "destroying workspace");
+        info!(self.log, "destroying workspace at {}", self.falcon_dir);
         fs::remove_dir_all(&self.falcon_dir)?;
 
         Ok(())
@@ -1561,7 +1566,7 @@ pub(crate) async fn launch_vm(
     fs::write(&path, child.id().to_string())?;
     path.pop();
 
-    let port = find_propolis_port_in_log(format!(".falcon/{}.out", node.name))
+    let port = find_propolis_port_in_log(format!("{}/{}.out", falcon_dir, node.name))
         .await
         .map_err(|e| anyhow::anyhow!("find propolis port in log: {e}"))?;
 
