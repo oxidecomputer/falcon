@@ -31,6 +31,7 @@ pub enum Error {
     Libnet(#[from] libnet::Error),
     #[error("cli: {0}")]
     Cli(String),
+    RonSpan(#[from] ron::error::SpannedError),
     Ron(#[from] ron::Error),
     TomL(#[from] toml::ser::Error),
     AddrParse(#[from] std::net::AddrParseError),
