@@ -24,7 +24,7 @@ smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
 uuid = { version = "1.16.0", features = [ "serde", "v4" ] }
 serde = "1.0"
-ron = "0.7"
+ron = "0.9"
 slog = { version = "2.7", features = ["max_level_trace"] }
 slog-term = "2.7"
 slog-async = "2.7"
