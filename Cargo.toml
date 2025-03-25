@@ -18,7 +18,7 @@ members = [
 [workspace.dependencies]
 thiserror = "1.0"
 anyhow = "1.0"
-zone = "0.1.8"
+zone = "0.3.0"
 regex = "1.5"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
