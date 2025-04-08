@@ -1707,9 +1707,9 @@ dependencies = [
 
 [[package]]
 name = "ron"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63f3aa105dea217ef30d89581b65a4d527a19afc95ef5750be3890e8d3c5b837"
+checksum = "84df01dd95914557a156cc964bd89371f892e267eee86950d0b28fadf8592798"
 dependencies = [
  "base64 0.22.1",
  "bitflags",
