@@ -786,10 +786,29 @@ impl Node {
     ) -> Result<(), Error> {
         self.try_ensure_base_image(log).await?;
 
+        // Propolis supports COM1 to COM4, so ensure those devices are present.
+        // Note COM4 will be added implicitly due to the presence of a
+        // SoftNpuPciPort device in the spec, and it will be commandeered by
+        // SoftNPU devices.
+
         self.components.insert(
             SpecKey::Name("com1".into()),
             ComponentV0::SerialPort(SerialPort {
                 num: SerialPortNumber::Com1,
+            }),
+        );
+
+        self.components.insert(
+            SpecKey::Name("com2".into()),
+            ComponentV0::SerialPort(SerialPort {
+                num: SerialPortNumber::Com2,
+            }),
+        );
+
+        self.components.insert(
+            SpecKey::Name("com3".into()),
+            ComponentV0::SerialPort(SerialPort {
+                num: SerialPortNumber::Com3,
             }),
         );
 
