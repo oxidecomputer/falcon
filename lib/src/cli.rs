@@ -73,7 +73,7 @@ enum SubCommand<T: clap::Args> {
     #[clap(about = "execute a command on a node")]
     Exec(CmdExec),
     /// Allow users of this library to add their own set of commands
-    #[clap(about = "optional extra commands")]
+    #[clap(about = "topology-specific commands")]
     Extra(T),
 }
 
