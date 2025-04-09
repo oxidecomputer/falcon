@@ -19,26 +19,35 @@ use error::Error;
 use futures::future::join_all;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
-use propolis_client::types::InstanceMetadata;
-use propolis_server_config::{BlockDevice, BlockOpts, Device};
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
 use slog::{debug, error, info, warn, Logger};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
 use std::io::BufWriter;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::{sleep, Duration, Instant};
+use uuid::Uuid;
 use xz2::read::XzDecoder;
+
+use propolis_client::types::InstanceMetadata;
+use propolis_client::types::{
+    ComponentV0, DlpiNetworkBackend, FileStorageBackend, P9fs, SerialPort,
+    SerialPortNumber, SoftNpuP9, SoftNpuPciPort, SoftNpuPort, VirtioDisk,
+    VirtioNetworkBackend, VirtioNic,
+};
+use propolis_client::PciPath;
+use propolis_client::SpecKey;
 
 #[macro_export]
 macro_rules! node {
@@ -166,6 +175,8 @@ pub struct Node {
     pub primary_disk_backing: PrimaryDiskBacking,
     /// VNC port to use
     pub vnc_port: Option<u16>,
+    /// Propolis components for instance spec
+    pub components: BTreeMap<SpecKey, ComponentV0>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -320,6 +331,7 @@ impl Runner {
             reserved: 20,
             primary_disk_backing: PrimaryDiskBacking::Zvol,
             vnc_port: None,
+            components: BTreeMap::new(),
         };
         self.deployment.nodes.push(n);
         r
@@ -508,7 +520,7 @@ impl Runner {
     /// the propolis VM instances, create the point to point network interfaces,
     /// set up the serial console for each VM and, run any user defined exec
     /// statements.
-    pub async fn launch(&self) -> Result<(), Error> {
+    pub async fn launch(&mut self) -> Result<(), Error> {
         self.preflight().await?;
         match self.do_launch().await {
             Ok(()) => Ok(()),
@@ -519,7 +531,7 @@ impl Runner {
         }
     }
 
-    async fn preflight(&self) -> Result<(), Error> {
+    async fn preflight(&mut self) -> Result<(), Error> {
         // Verify all required executables are discoverable.
         let out = Command::new(&self.propolis_binary).args(["-V"]).output();
         if out.is_err() {
@@ -539,9 +551,7 @@ impl Runner {
         topo_path.push("topology.ron");
         fs::write(&topo_path, out)?;
 
-        for n in self.deployment.nodes.iter() {
-            n.preflight(self).await?;
-        }
+        self.deployment.nodes_preflight(&self.log).await?;
 
         Ok(())
     }
@@ -703,6 +713,51 @@ impl Deployment {
             e.index,
         )
     }
+
+    async fn nodes_preflight(&mut self, log: &Logger) -> Result<(), Error> {
+        let mut endpoints = Vec::new();
+        for l in &self.links {
+            endpoints.extend_from_slice(&l.endpoints);
+        }
+        for l in &self.ext_links {
+            endpoints.push(l.endpoint.clone());
+        }
+
+        let mut node_endpoints_map: HashMap<String, Vec<NodeEndpoint>> =
+            HashMap::new();
+        let mut softnpu_deployment = false;
+
+        for n in self.nodes.iter() {
+            let node_endpoints: Vec<NodeEndpoint> = endpoints
+                .iter()
+                .filter(|e| self.nodes[e.node.index].name == n.name)
+                .map(|e| NodeEndpoint {
+                    vnic_name: self.vnic_link_name(e),
+                    endpoint: e.clone(),
+                })
+                .collect();
+
+            let has_softnpu = node_endpoints.iter().any(|ne| {
+                matches!(&ne.endpoint.kind, EndpointKind::SoftNPU(_))
+            });
+
+            softnpu_deployment |= has_softnpu;
+
+            node_endpoints_map.insert(n.name.clone(), node_endpoints);
+        }
+
+        for n in self.nodes.iter_mut() {
+            n.preflight(
+                log,
+                &self.name,
+                &node_endpoints_map[&n.name],
+                softnpu_deployment,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for Runner {
@@ -716,161 +771,142 @@ impl Drop for Runner {
     }
 }
 
-impl Node {
-    async fn preflight(&self, r: &Runner) -> Result<(), Error> {
-        let mut devices = BTreeMap::new();
-        let mut block_devs = BTreeMap::new();
+struct NodeEndpoint {
+    vnic_name: String,
+    endpoint: Endpoint,
+}
 
-        self.try_ensure_base_image(&r.log).await?;
+impl Node {
+    async fn preflight(
+        &mut self,
+        log: &Logger,
+        deployment_name: &str,
+        node_endpoints: &[NodeEndpoint],
+        softnpu_deployment: bool,
+    ) -> Result<(), Error> {
+        self.try_ensure_base_image(log).await?;
+
+        self.components.insert(
+            SpecKey::Name("com1".into()),
+            ComponentV0::SerialPort(SerialPort {
+                num: SerialPortNumber::Com1,
+            }),
+        );
 
         let backing = match self.primary_disk_backing {
-            PrimaryDiskBacking::Zvol => self.create_zvol_backing(r)?,
-            PrimaryDiskBacking::File => self.create_file_backing(r)?,
+            PrimaryDiskBacking::Zvol => {
+                self.create_zvol_backing(deployment_name)?
+            }
+            PrimaryDiskBacking::File => {
+                self.create_file_backing(log, deployment_name)?
+            }
         };
-        self.create_blockdev(backing, &mut devices, &mut block_devs);
+        self.create_blockdev(backing);
 
         let mut pci_index = 5;
 
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
-            let mut opts = BTreeMap::new();
-            opts.insert("source".to_string(), m.source.to_string().into());
-            opts.insert("target".to_string(), m.destination.to_string().into());
-            opts.insert(
-                "pci-path".to_string(),
-                toml::Value::String(format!("0.{}.0", pci_index)),
+            self.components.insert(
+                SpecKey::Name(format!("fs{i}")),
+                ComponentV0::P9fs(P9fs {
+                    source: m.source.to_string(),
+                    target: m.destination.to_string(),
+                    chunk_size: 65536, // XXX magic number?
+                    pci_path: PciPath::new(0, pci_index, 0).unwrap(),
+                }),
             );
 
-            devices.insert(
-                format!("fs{}", i),
-                propolis_server_config::Device {
-                    driver: "pci-virtio-9p".to_string(),
-                    options: opts,
-                },
-            );
             pci_index += 1;
         }
 
         // network interfaces
-        let d = &r.deployment;
 
-        //let mut links: Vec<String> = Vec::new();
         let mut viona_index = 0;
         let mut softnpu_index = 0;
 
-        let mut endpoints = Vec::new();
-        for l in &d.links {
-            endpoints.extend_from_slice(&l.endpoints);
-        }
-        for l in &d.ext_links {
-            endpoints.push(l.endpoint.clone());
-        }
-
-        let has_softnpu = endpoints
-            .iter()
-            .any(|x| matches!(&x.kind, EndpointKind::SoftNPU(_)));
-
-        if has_softnpu {
-            let mut opts = BTreeMap::new();
-            opts.insert(
-                "pci-path".to_string(),
-                toml::Value::String(format!("0.{}.0", pci_index)),
+        // if using a softnpu deployment, each instance must have the following
+        // components, but note that the spec keys will (current) be overwritten
+        // by propolis-server
+        if softnpu_deployment {
+            self.components.insert(
+                SpecKey::Name("softnpu-p9".into()),
+                ComponentV0::SoftNpuP9(SoftNpuP9 {
+                    pci_path: PciPath::new(0, pci_index, 0).unwrap(),
+                }),
             );
 
-            devices.insert(
-                "softnpup9".to_owned(),
-                propolis_server_config::Device {
-                    driver: "softnpu-p9".to_string(),
-                    options: opts,
-                },
-            );
             pci_index += 1;
 
-            let mut opts = BTreeMap::new();
-            opts.insert(
-                "pci-path".to_string(),
-                toml::Value::String(format!("0.{}.0", pci_index)),
+            self.components.insert(
+                SpecKey::Name("softnpu-pci-port".into()),
+                ComponentV0::SoftNpuPciPort(SoftNpuPciPort {
+                    pci_path: PciPath::new(0, pci_index, 0).unwrap(),
+                }),
             );
 
-            devices.insert(
-                "softnpu-pci-port".to_owned(),
-                propolis_server_config::Device {
-                    driver: "softnpu-pci-port".to_string(),
-                    options: opts,
-                },
-            );
             pci_index += 1;
+
+            // note: softnpu requires com4 but propolis-server will add that for
+            // us
         }
 
-        for e in &endpoints {
-            if d.nodes[e.node.index].name == self.name {
-                match &e.kind {
-                    EndpointKind::Viona(_) => {
-                        //links.push(d.vnic_link_name(e));
-                        let mut opts = BTreeMap::new();
-                        opts.insert(
-                            "vnic".to_string(),
-                            toml::Value::String(d.vnic_link_name(e)),
-                        );
-                        opts.insert(
-                            "pci-path".to_string(),
-                            toml::Value::String(format!("0.{}.0", pci_index)),
-                        );
-                        devices.insert(
-                            format!("net{}", viona_index),
-                            propolis_server_config::Device {
-                                driver: "pci-virtio-viona".to_string(),
-                                options: opts,
+        for NodeEndpoint {
+            vnic_name,
+            endpoint,
+        } in node_endpoints
+        {
+            match &endpoint.kind {
+                EndpointKind::Viona(_) => {
+                    self.components.insert(
+                        SpecKey::Name(format!("net{viona_index}-backing")),
+                        ComponentV0::VirtioNetworkBackend(
+                            VirtioNetworkBackend {
+                                vnic_name: vnic_name.clone(),
                             },
-                        );
-                        viona_index += 1;
-                        pci_index += 1;
-                    }
+                        ),
+                    );
 
-                    EndpointKind::SoftNPU(mac) => {
-                        let mut opts = BTreeMap::new();
-                        opts.insert(
-                            "vnic".to_string(),
-                            toml::Value::String(d.vnic_link_name(e)),
-                        );
-                        if let Some(ref mac) = mac {
-                            opts.insert(
-                                "mac".to_string(),
-                                toml::Value::String(mac.clone()),
-                            );
-                        };
-                        devices.insert(
-                            format!("port{}", softnpu_index),
-                            propolis_server_config::Device {
-                                driver: "softnpu-port".to_string(),
-                                options: opts,
-                            },
-                        );
-                        softnpu_index += 1;
-                    }
+                    self.components.insert(
+                        SpecKey::Name(format!("net{viona_index}")),
+                        ComponentV0::VirtioNic(VirtioNic {
+                            backend_id: SpecKey::Name(format!(
+                                "net{viona_index}-backing"
+                            )),
+                            interface_id: Uuid::new_v4(),
+                            pci_path: PciPath::new(0, pci_index, 0).unwrap(),
+                        }),
+                    );
+
+                    viona_index += 1;
+                    pci_index += 1;
+                }
+
+                // XXX is mac used in spec?
+                EndpointKind::SoftNPU(_mac) => {
+                    let backend_id = SpecKey::Name(format!(
+                        "softnpu{softnpu_index}-backing"
+                    ));
+
+                    self.components.insert(
+                        backend_id.clone(),
+                        ComponentV0::DlpiNetworkBackend(DlpiNetworkBackend {
+                            vnic_name: vnic_name.clone(),
+                        }),
+                    );
+
+                    self.components.insert(
+                        SpecKey::Name(format!("softnpu{softnpu_index}-port")),
+                        ComponentV0::SoftNpuPort(SoftNpuPort {
+                            link_name: format!("softnpu{softnpu_index}"),
+                            backend_id,
+                        }),
+                    );
+
+                    softnpu_index += 1;
                 }
             }
         }
-
-        let chipset = propolis_server_config::Chipset {
-            options: BTreeMap::new(),
-        };
-
-        // write propolis instance config to <falcon_dir>/<node-name>.toml
-
-        let propolis_config = propolis_server_config::Config {
-            bootrom: PathBuf::from("/var/ovmf/OVMF_CODE.fd"),
-            chipset,
-            devices,
-            block_devs,
-            ..Default::default()
-        };
-
-        let config_toml = toml::to_string(&propolis_config)?;
-
-        let mut path = r.falcon_dir.clone();
-        path.push(format!("{}.toml", self.name));
-        fs::write(&path, config_toml)?;
 
         Ok(())
     }
@@ -1076,15 +1112,16 @@ impl Node {
         Ok(())
     }
 
-    fn create_zvol_backing(&self, r: &Runner) -> Result<String, Error> {
+    fn create_zvol_backing(
+        &self,
+        deployment_name: &str,
+    ) -> Result<String, Error> {
         //Clone base image
 
         //TODO incorporate version into img
         let source = format!("{}/img/{}@base", self.dataset, self.image);
-        let dest = format!(
-            "{}/topo/{}/{}",
-            self.dataset, r.deployment.name, self.name
-        );
+        let dest =
+            format!("{}/topo/{}/{}", self.dataset, deployment_name, self.name);
 
         let out = Command::new(ZFS_BIN)
             .args(["clone", "-p", source.as_ref(), dest.as_ref()])
@@ -1124,25 +1161,29 @@ impl Node {
 
         let zvol = format!(
             "/dev/zvol/rdsk/{}/topo/{}/{}",
-            self.dataset, r.deployment.name, self.name,
+            self.dataset, deployment_name, self.name,
         );
 
         Ok(zvol)
     }
 
-    fn create_file_backing(&self, r: &Runner) -> Result<String, Error> {
+    fn create_file_backing(
+        &self,
+        log: &Logger,
+        deployment_name: &str,
+    ) -> Result<String, Error> {
         let size = format!("{}G", self.reserved);
 
-        let dir = format!("/var/falcon/dsk/{}", r.deployment.name);
+        let dir = format!("/var/falcon/dsk/{}", deployment_name);
         if let Err(e) = fs::create_dir_all(&dir) {
-            error!(r.log, "failed to create image directory: {e}");
+            error!(log, "failed to create image directory: {e}");
             return Err(Error::IO(e));
         }
         let backing = format!("{}/{}", dir, self.name);
         let source_zvol =
             format!("/dev/zvol/dsk/{}/img/{}@base", self.dataset, self.image);
 
-        info!(r.log, "copying backing image for {}", self.name);
+        info!(log, "copying backing image for {}", self.name);
         let dd_if = format!("if={source_zvol}");
         let dd_of = format!("of={backing}");
         let out = Command::new(DD_BIN)
@@ -1162,42 +1203,21 @@ impl Node {
         Ok(backing)
     }
 
-    fn create_blockdev(
-        &self,
-        backing: String,
-        devices: &mut BTreeMap<String, Device>,
-        block_devs: &mut BTreeMap<String, BlockDevice>,
-    ) {
-        let mut device_options = BTreeMap::new();
-        let mut blockdev_options = BTreeMap::new();
-        device_options.insert(
-            "block_dev".to_string(),
-            toml::Value::String("main_disk".to_string()),
+    fn create_blockdev(&mut self, backing: String) {
+        self.components.insert(
+            SpecKey::Name("main_disk".to_string()),
+            ComponentV0::VirtioDisk(VirtioDisk {
+                backend_id: SpecKey::Name("main_disk_backing".into()),
+                pci_path: PciPath::new(0, 4, 0).unwrap(),
+            }),
         );
-        device_options.insert(
-            "pci-path".to_string(),
-            toml::Value::String("0.4.0".to_string()),
-        );
-        devices.insert(
-            "block0".to_string(),
-            propolis_server_config::Device {
-                driver: "pci-virtio-block".to_string(),
-                options: device_options,
-            },
-        );
-        blockdev_options
-            .insert("path".to_string(), toml::Value::String(backing));
-        block_devs.insert(
-            "main_disk".to_string(),
-            propolis_server_config::BlockDevice {
-                bdtype: "file".to_string(),
-                options: blockdev_options,
-                opts: BlockOpts {
-                    block_size: None,
-                    read_only: None,
-                    skip_flush: Some(true),
-                },
-            },
+
+        self.components.insert(
+            SpecKey::Name("main_disk_backing".to_string()),
+            ComponentV0::FileStorageBackend(FileStorageBackend {
+                path: backing,
+                readonly: false,
+            }),
         );
     }
 
@@ -1205,9 +1225,15 @@ impl Node {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
-        let port =
-            launch_vm(&r.log, &r.propolis_binary, &id, self, &r.falcon_dir)
-                .await?;
+        let port = launch_vm(
+            &r.log,
+            &r.propolis_binary,
+            &id,
+            self,
+            &r.falcon_dir,
+            Some(&self.components),
+        )
+        .await?;
 
         if !self.do_setup {
             return Ok(());
@@ -1466,28 +1492,35 @@ pub(crate) async fn launch_vm(
     id: &uuid::Uuid,
     node: &Node,
     falcon_dir: &Utf8Path,
+    components: Option<&BTreeMap<SpecKey, ComponentV0>>,
 ) -> Result<u16, Error> {
     // launch propolis-server
 
     let mut path = falcon_dir.to_path_buf();
+
     path.push(format!("{}.out", node.name));
     let stdout = fs::File::create(&path)?;
     path.pop();
+
     path.push(format!("{}.err", node.name));
     let stderr = fs::File::create(&path)?;
     path.pop();
-    path.push(format!("{}.toml", node.name));
-    let config = path.clone();
+
     let sockaddr = String::from("[::]:0");
     let mut cmd = Command::new(propolis_binary);
-    let mut args =
-        vec!["run".to_string(), config.into_string(), sockaddr.clone()];
+    let mut args = vec![
+        "run".to_string(),
+        "/var/ovmf/OVMF_CODE.fd".to_string(),
+        sockaddr.clone(),
+    ];
     if let Some(vnc_port) = node.vnc_port {
         args.push(format!("[::]:{}", vnc_port));
     }
-    cmd.args(&args).stdout(stdout).stderr(stderr);
+    cmd.args(&args)
+        .env("RUST_BACKTRACE", "FULL")
+        .stdout(stdout)
+        .stderr(stderr);
     let child = cmd.spawn()?;
-    path.pop();
 
     path.push(format!("{}.pid", node.name));
     fs::write(&path, child.id().to_string())?;
@@ -1531,10 +1564,6 @@ pub(crate) async fn launch_vm(
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
-        image_id: uuid::Uuid::default(),
-        bootrom_id: uuid::Uuid::default(),
-        memory: node.memory,
-        vcpus: node.cores,
         metadata: InstanceMetadata {
             project_id: uuid::Uuid::nil(),
             silo_id: uuid::Uuid::nil(),
@@ -1544,12 +1573,31 @@ pub(crate) async fn launch_vm(
             sled_revision: 0,
         },
     };
+
+    let spec = propolis_client::types::InstanceSpecV0 {
+        board: propolis_client::types::Board {
+            cpus: node.cores,
+            memory_mb: node.memory,
+            chipset: propolis_client::types::Chipset::I440Fx(
+                propolis_client::types::I440Fx { enable_pcie: false },
+            ),
+            cpuid: None,
+            guest_hv_interface: None,
+        },
+        components: if let Some(components) = components {
+            components
+                .iter()
+                .map(|(spec_key, comp)| (spec_key.to_string(), comp.clone()))
+                .collect()
+        } else {
+            Default::default()
+        },
+    };
     let req = propolis_client::types::InstanceEnsureRequest {
         properties,
-        nics: Vec::new(),
-        disks: Vec::new(),
-        migrate: None,
-        cloud_init_bytes: None,
+        init: propolis_client::types::InstanceInitializationMethod::Spec {
+            spec,
+        },
     };
 
     // we just launched the instance, so wait for it to become ready
@@ -1562,7 +1610,7 @@ pub(crate) async fn launch_vm(
                 break;
             }
             Err(e) => {
-                debug!(log, "instance ensure error: {e}, retry in 1 second");
+                warn!(log, "instance ensure error: {e}, retry in 1 second");
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
