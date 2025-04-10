@@ -1549,7 +1549,7 @@ dependencies = [
 [[package]]
 name = "propolis-client"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=ba4d338f0c98faa0328502c99aa6fa0e0948d3da#ba4d338f0c98faa0328502c99aa6fa0e0948d3da"
+source = "git+https://github.com/oxidecomputer/propolis?rev=bdaaf207c7d7f9a6d905a3589eb8e159aa78df12#bdaaf207c7d7f9a6d905a3589eb8e159aa78df12"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -1573,7 +1573,7 @@ dependencies = [
 [[package]]
 name = "propolis_api_types"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=ba4d338f0c98faa0328502c99aa6fa0e0948d3da#ba4d338f0c98faa0328502c99aa6fa0e0948d3da"
+source = "git+https://github.com/oxidecomputer/propolis?rev=bdaaf207c7d7f9a6d905a3589eb8e159aa78df12#bdaaf207c7d7f9a6d905a3589eb8e159aa78df12"
 dependencies = [
  "crucible-client-types",
  "propolis_types",
@@ -1587,7 +1587,7 @@ dependencies = [
 [[package]]
 name = "propolis_types"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=ba4d338f0c98faa0328502c99aa6fa0e0948d3da#ba4d338f0c98faa0328502c99aa6fa0e0948d3da"
+source = "git+https://github.com/oxidecomputer/propolis?rev=bdaaf207c7d7f9a6d905a3589eb8e159aa78df12#bdaaf207c7d7f9a6d905a3589eb8e159aa78df12"
 dependencies = [
  "schemars",
  "serde",
