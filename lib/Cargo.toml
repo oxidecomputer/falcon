@@ -20,7 +20,6 @@ slog-term.workspace = true
 slog-async.workspace = true
 slog-envlogger.workspace = true
 propolis-client.workspace = true
-propolis-server-config.workspace = true
 toml.workspace = true
 libc.workspace = true
 tokio.workspace = true

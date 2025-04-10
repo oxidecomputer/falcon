@@ -427,13 +427,13 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn preflight(r: &Runner) {
+async fn preflight(r: &mut Runner) {
     if let Err(e) = r.preflight().await {
         eprintln!("error: {}", e)
     }
 }
 
-async fn launch(r: &Runner) {
+async fn launch(r: &mut Runner) {
     if let Err(e) = r.launch().await {
         eprintln!("error: {}", e)
     }
@@ -788,7 +788,8 @@ async fn hyperstart(
     path.pop();
     let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir).await?;
+    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir, None)
+        .await?;
 
     Ok(())
 }
