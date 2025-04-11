@@ -7,6 +7,7 @@
 use std::fs;
 use std::process::Command;
 use std::{
+    future::Future,
     io::{stdout, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     os::unix::prelude::AsRawFd,
@@ -37,16 +38,16 @@ pub enum RunMode {
 #[derive(Parser)]
 #[clap(version = "0.1")]
 #[clap(infer_subcommands = true, styles = oxide_cli_style())]
-struct Opts {
+pub struct Opts<T: clap::Args> {
     #[clap(short, long, action = ArgAction::Count)]
     verbose: u8,
 
     #[clap(subcommand)]
-    subcmd: SubCommand,
+    subcmd: SubCommand<T>,
 }
 
 #[derive(Parser)]
-enum SubCommand {
+enum SubCommand<T: clap::Args> {
     #[clap(about = "run topology preflight")]
     Preflight(CmdPreflight),
     #[clap(about = "launch topology")]
@@ -71,6 +72,9 @@ enum SubCommand {
     Snapshot(CmdSnapshot),
     #[clap(about = "execute a command on a node")]
     Exec(CmdExec),
+    /// Allow users of this library to add their own set of commands
+    #[clap(about = "topology-specific commands")]
+    Extra(T),
 }
 
 #[derive(Parser)]
@@ -213,9 +217,71 @@ struct CmdExec {
 /// run(&mut r);
 /// ```
 pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
+    #[derive(Parser)]
+    struct Dummy {}
+    run_with_extra(r, |_: &mut Runner, _: Dummy| std::future::ready(Ok(())))
+        .await
+}
+
+/// Entry point for a command line application. Will parse command line
+/// arguments (including any extra commands that users of this library add) and
+/// take actions accordingly.
+///
+/// # Examples
+/// ```no_run
+/// use libfalcon::{
+///     cli::run_with_extra,
+///     Runner,
+///     error::Error,
+/// };
+/// use clap::Parser;
+///
+/// #[derive(Parser)]
+/// #[command(version = "0.1")]
+/// struct OtherOpts {
+///     #[clap(subcommand)]
+///     subcmd: SubCommand,
+/// }
+///
+/// #[derive(Parser)]
+/// enum SubCommand {
+///     #[clap(about = "some topology specific command")]
+///     Something,
+/// }
+///
+/// async fn extra_stuff(r: &mut Runner, opts: OtherOpts) -> Result<(), Error> {
+///     match opts.subcmd {
+///         SubCommand::Something => {
+///             // some topology specific command!
+///         }
+///     }
+///
+///     Ok(())
+/// }
+///
+/// let mut r = Runner::new("duo");
+///
+/// // nodes
+/// let violin = r.node("violin", "helios-2.5", 1, 1024);
+/// let piano = r.node("piano", "helios-2.5", 1, 1024);
+///
+/// // links
+/// r.link(violin, piano);
+///
+/// run_with_extra(&mut r, extra_stuff);
+/// ```
+pub async fn run_with_extra<'a, T, F, O>(
+    r: &'a mut Runner,
+    extra: F,
+) -> Result<RunMode, Error>
+where
+    T: clap::Args,
+    F: FnOnce(&'a mut Runner, T) -> O,
+    O: Future<Output = Result<(), Error>>,
+{
     r.persistent = true;
 
-    let opts: Opts = Opts::parse();
+    let opts: Opts<T> = Opts::<T>::parse();
     match opts.subcmd {
         SubCommand::Preflight(p) => {
             r.falcon_dir = p.falcon_dir;
@@ -305,6 +371,10 @@ pub async fn run(r: &mut Runner) -> Result<RunMode, Error> {
             exec(r, &c.node, &c.command).await?;
             Ok(RunMode::Unspec)
         }
+        SubCommand::Extra(c) => {
+            extra(r, c).await?;
+            Ok(RunMode::Unspec)
+        }
     }
 }
 
@@ -357,13 +427,13 @@ fn info(r: &Runner) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn preflight(r: &Runner) {
+async fn preflight(r: &mut Runner) {
     if let Err(e) = r.preflight().await {
         eprintln!("error: {}", e)
     }
 }
 
-async fn launch(r: &Runner) {
+async fn launch(r: &mut Runner) {
     if let Err(e) = r.launch().await {
         eprintln!("error: {}", e)
     }
@@ -718,7 +788,8 @@ async fn hyperstart(
     path.pop();
     let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir).await?;
+    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir, None)
+        .await?;
 
     Ok(())
 }

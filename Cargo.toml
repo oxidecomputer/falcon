@@ -18,30 +18,30 @@ members = [
 [workspace.dependencies]
 thiserror = "1.0"
 anyhow = "1.0"
-zone = "0.1.8"
+zone = "0.3.0"
 regex = "1.5"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
-uuid = { version = "1.0.0", features = [ "serde", "v4" ] }
+uuid = { version = "1.16.0", features = [ "serde", "v4" ] }
 serde = "1.0"
-ron = "0.7"
+ron = "0.10"
 slog = { version = "2.7", features = ["max_level_trace"] }
 slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "fae5334bcad5e864794332c6fed5e6bb9ec88831" }
-propolis-server-config = { git = "https://github.com/oxidecomputer/propolis", rev = "fae5334bcad5e864794332c6fed5e6bb9ec88831" }
-toml = "0.7"
+toml = "0.8"
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "bdaaf207c7d7f9a6d905a3589eb8e159aa78df12" }
 libc = "0.2"
-tokio = { version = "1.39.3", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 tokio-tungstenite = "0.21"
 futures = "0.3"
-clap = { version = "4.0.28", features = ["color", "derive"] }
+clap = { version = "4.5.35", features = ["color", "derive"] }
 tabwriter = { version = "1", features = ["ansi_formatting"] }
-colored = "2"
+colored = "3"
 rand = "0.8"
-camino = { version = "1.1.1", features = ["serde1"] }
-reqwest = "0.12.7"
-oxnet = { git = "https://github.com/oxidecomputer/oxnet" }
-indicatif = "0.17.8"
+camino = { version = "1.1.9", features = ["serde1"] }
+reqwest = { version = "0.12.15", default-features = false }
+oxnet = { version = "0.1.1", default-features = false }
+indicatif = "0.17.11"
 xz2 = "0.1.7"
+camino-tempfile = "1.1.1"

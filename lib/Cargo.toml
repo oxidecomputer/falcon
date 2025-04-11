@@ -20,7 +20,6 @@ slog-term.workspace = true
 slog-async.workspace = true
 slog-envlogger.workspace = true
 propolis-client.workspace = true
-propolis-server-config.workspace = true
 toml.workspace = true
 libc.workspace = true
 tokio.workspace = true
@@ -34,4 +33,7 @@ camino.workspace = true
 reqwest.workspace = true
 indicatif.workspace = true
 xz2.workspace = true
-anstyle = "1.0.4"
+anstyle = "1.0.10"
+
+[dev-dependencies]
+camino-tempfile.workspace = true

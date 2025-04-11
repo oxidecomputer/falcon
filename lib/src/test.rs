@@ -12,6 +12,11 @@ use anyhow::{anyhow, Result};
 #[tokio::test]
 async fn empty_launch() -> Result<()> {
     let mut d = crate::Runner::new("empty_launch");
+
+    // Each test must use a separate falcon dir
+    let falcon_dir = camino_tempfile::tempdir()?;
+    d.set_falcon_dir(falcon_dir.path());
+
     d.persistent = true;
     d.launch().await?;
     d.destroy()?;
@@ -25,6 +30,11 @@ async fn empty_launch() -> Result<()> {
 #[tokio::test]
 async fn solo_launch() -> Result<()> {
     let mut d = crate::Runner::new("solo");
+
+    // Each test must use a separate falcon dir
+    let falcon_dir = camino_tempfile::tempdir()?;
+    d.set_falcon_dir(falcon_dir.path());
+
     let z = d.node("violin", "helios-2.5", 1, 1024);
 
     // mount a file into the node
@@ -54,13 +64,18 @@ async fn duo_launch() -> Result<()> {
     // These are the links we'll expect to see, one simnet and one vnic for
     // each node
     let links = [
-        String::from("duo_violin_sim0"),
-        String::from("duo_violin_vnic0"),
-        String::from("duo_piano_sim0"),
-        String::from("duo_piano_vnic0"),
+        String::from("duo_violin_vn_sim0"),
+        String::from("duo_violin_vn_vnic0"),
+        String::from("duo_piano_vn_sim0"),
+        String::from("duo_piano_vn_vnic0"),
     ];
 
     let mut d = crate::Runner::new("duo");
+
+    // Each test must use a separate falcon dir
+    let falcon_dir = camino_tempfile::tempdir()?;
+    d.set_falcon_dir(falcon_dir.path());
+
     let violin = d.node("violin", "helios-2.5", 1, 1024);
     let piano = d.node("piano", "helios-2.5", 1, 1024);
     d.link(violin, piano);

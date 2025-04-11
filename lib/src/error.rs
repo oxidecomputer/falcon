@@ -33,6 +33,7 @@ pub enum Error {
     Cli(String),
     #[error("exclusive iface used multiple times: {0}")]
     ExternalNicReused(String),
+    RonSpan(#[from] ron::error::SpannedError),
     Ron(#[from] ron::Error),
     TomL(#[from] toml::ser::Error),
     AddrParse(#[from] std::net::AddrParseError),
