@@ -17,7 +17,6 @@ From the top dir in the falcon repo.
 ```
 ./get-propolis.sh
 ./get-ovmf.sh
-./setup-base-images.sh
 ```
 
 ## tl;dr

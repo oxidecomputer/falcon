@@ -20,11 +20,11 @@ development environment for networked systems.
 Install `propolis-server`.  The`get-propolis.sh` script can also be used to
 automatically install propolis-server form the current Falcon CI build.
 
-Set up propolis, firmware and OS base images.
+Set up propolis and firmware. OS images are automatically downloaded by Falcon
+on demand.
 ```
 ./get-propolis.sh
 ./get-ovmf.sh
-./setup-base-images.sh
 ```
 
 Falcon-enabled propolis builds are kicked out by Propolis CI. See
