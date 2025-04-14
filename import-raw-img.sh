@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# This script is useful for importing a raw image onto your local system for
+# testing the construction of a new falcon image. This is not necessary for
+# falcon images that have been uploaded to the falcon image bucket. Those
+# images are automatically managed by falcon.
+
 set -o xtrace
 set -o errexit
 set -o pipefail

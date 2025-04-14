@@ -13,14 +13,14 @@ pub(crate) async fn ensure_propolis_binary(
     log: &Logger,
 ) -> Result<()> {
     let path = format!("{falcon_dir}/bin/propolis-server");
-    let Some(local_digest) = get_downloaded_propolis_shasum(&path)? else {
+    let Some(local_digest) = get_downloaded_propolis_digest(&path)? else {
         info!(log, "propolis-server binary not found");
         return download_propolis(rev, &path, log).await;
     };
-    let remote_digest = get_expected_propolis_shasum(rev).await?;
+    let remote_digest = get_expected_propolis_digest(rev).await?;
     if local_digest != remote_digest {
         info!(log,
-            "propolis-server digest {local_digest} does not match expected {remote_digest}"
+            "propolis-server digest '{local_digest}' does not match expected '{remote_digest}'"
         );
         return download_propolis(rev, &path, log).await;
     }
@@ -37,7 +37,7 @@ async fn download_propolis(rev: &str, path: &str, log: &Logger) -> Result<()> {
     Ok(())
 }
 
-fn get_downloaded_propolis_shasum(path: &str) -> Result<Option<String>> {
+fn get_downloaded_propolis_digest(path: &str) -> Result<Option<String>> {
     let mut file = match fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Ok(None),
@@ -49,11 +49,12 @@ fn get_downloaded_propolis_shasum(path: &str) -> Result<Option<String>> {
     Ok(Some(hash))
 }
 
-async fn get_expected_propolis_shasum(rev: &str) -> Result<String> {
+async fn get_expected_propolis_digest(rev: &str) -> Result<String> {
     let digest_url = format!(
         "https://buildomat.eng.oxide.computer/public/file/oxidecomputer/propolis/falcon/{rev}/propolis-server.sha256.txt"
     );
 
     let response = reqwest::get(digest_url).await?;
-    Ok(response.text().await?)
+    let text = response.text().await?;
+    Ok(text.trim().to_owned())
 }

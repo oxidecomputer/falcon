@@ -654,7 +654,7 @@ impl Runner {
             let p = ent?.path();
             // Dont delete downloaded binaries on each launch these are checked to
             // ensure they are what falcon expects
-            if p == Path::new("bin") {
+            if p == Path::new(&format!("{}/bin", self.falcon_dir.as_str())) {
                 continue;
             }
             if p.is_dir() {
@@ -664,7 +664,7 @@ impl Runner {
                 std::fs::remove_file(p)?;
             }
         }
-        todo!()
+        Ok(())
     }
 
     /// Run a command synchronously in the vm.
