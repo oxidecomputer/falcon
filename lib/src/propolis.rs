@@ -5,8 +5,6 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 
-//const PROPOLIS_SERVER_PATH: &str = ".falcon/bin/propolis-server";
-
 pub(crate) async fn ensure_propolis_binary(
     rev: &str,
     falcon_dir: &str,
