@@ -10,15 +10,17 @@ mod util;
 
 pub mod cli;
 pub mod error;
+pub mod propolis;
 pub mod serial;
 pub mod unit;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use propolis::ensure_propolis_binary;
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
@@ -48,6 +50,9 @@ use propolis_client::types::{
 };
 use propolis_client::PciPath;
 use propolis_client::SpecKey;
+
+// See build.rs for how this file is generated
+include!(concat!(env!("OUT_DIR"), "/propolis_version.rs"));
 
 #[macro_export]
 macro_rules! node {
@@ -83,6 +88,7 @@ macro_rules! cmd {
 }
 
 pub const DEFAULT_FALCON_DIR: &str = ".falcon";
+pub const DEFAULT_PROPOLIS_SERVER: &str = ".falcon/bin/propolis-server";
 const ZFS_BIN: &str = "/usr/sbin/zfs";
 const DLADM_BIN: &str = "/usr/sbin/dladm";
 const DD_BIN: &str = "/usr/bin/dd";
@@ -291,7 +297,7 @@ impl Runner {
             deployment: Deployment::new(name),
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
-            propolis_binary: "propolis-server".into(),
+            propolis_binary: DEFAULT_PROPOLIS_SERVER.into(),
             dataset: dataset(),
             falcon_dir: DEFAULT_FALCON_DIR.into(),
         }
@@ -532,11 +538,12 @@ impl Runner {
     }
 
     async fn preflight(&mut self) -> Result<(), Error> {
-        // Verify all required executables are discoverable.
+        ensure_propolis_binary(PROPOLIS_REV, &self.log).await?;
+        // Verify all required executables are usable.
         let out = Command::new(&self.propolis_binary).args(["-V"]).output();
         if out.is_err() {
             return Err(Error::Exec(format!(
-                "failed to find {} on PATH",
+                "failed to find {}",
                 &self.propolis_binary
             )));
         }
@@ -999,7 +1006,7 @@ impl Node {
             "/dev/zvol/rdsk/{}/img/{}",
             self.dataset, self.image
         ))?;
-        let pb = Self::new_progress_bar();
+        let pb = new_progress_bar();
         pb.inc_length(dst.metadata().context("zvol dst metadata")?.len());
         let mut dst = BufWriter::with_capacity(1024 * 1024, dst);
 
@@ -1040,7 +1047,7 @@ impl Node {
                 .context("file size as usize")?);
         }
         info!(log, "extracting image to {to}");
-        let pb = Self::new_progress_bar();
+        let pb = new_progress_bar();
         let in_file = std::fs::File::open(from)?;
         let len = in_file
             .metadata()
@@ -1060,20 +1067,6 @@ impl Node {
             .context("file size as usize")?)
     }
 
-    fn new_progress_bar() -> ProgressBar {
-        let pb = ProgressBar::new(0);
-        let sty = ProgressStyle::with_template(
-            "[{elapsed_precise}] \
-            {bar:40.cyan/blue} \
-            {bytes}/{total_bytes} \
-            {msg}",
-        )
-        .unwrap()
-        .progress_chars("##-");
-        pb.set_style(sty);
-        pb
-    }
-
     async fn try_download_base_image(
         &self,
         log: &Logger,
@@ -1089,45 +1082,7 @@ impl Node {
         );
         info!(log, "trying to download {url}");
 
-        let pb = Self::new_progress_bar();
-
-        let client = reqwest::ClientBuilder::new()
-            .timeout(Duration::from_secs(3600))
-            .tcp_keepalive(Duration::from_secs(3600))
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .unwrap();
-        let response = client
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| format!("failed to get url {url}"))?;
-
-        if !response.status().is_success() {
-            Err(anyhow::anyhow!(
-                "failed to download image: {}",
-                response.status()
-            ))?;
-        }
-        pb.inc_length(
-            response
-                .content_length()
-                .ok_or_else(|| anyhow::anyhow!("Missing content length"))?,
-        );
-        let mut file = tokio::fs::File::create(path)
-            .await
-            .with_context(|| format!("failed to create {path}"))?;
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.with_context(|| {
-                format!("failed reading response from {url}")
-            })?;
-            file.write_all(&chunk)
-                .await
-                .with_context(|| format!("failed writing {path:?}"))?;
-            pb.inc(chunk.len().try_into().unwrap());
-        }
-        pb.finish();
+        download_large_file(url.as_str(), path).await?;
         Ok(())
     }
 
@@ -1712,4 +1667,70 @@ async fn do_find_propolis_port_in_log(
             }
         }
     }
+}
+
+pub(crate) fn new_progress_bar() -> ProgressBar {
+    let pb = ProgressBar::new(0);
+    let sty = ProgressStyle::with_template(
+        "[{elapsed_precise}] \
+            {bar:40.cyan/blue} \
+            {bytes}/{total_bytes} \
+            {msg}",
+    )
+    .unwrap()
+    .progress_chars("##-");
+    pb.set_style(sty);
+    pb
+}
+
+pub(crate) async fn download_large_file(
+    url: &str,
+    destination_path: &str,
+) -> anyhow::Result<()> {
+    let path = Path::new(destination_path);
+    let dir = path.parent().ok_or_else(|| {
+        anyhow!("could not determine parent dir for {destination_path}")
+    })?;
+    std::fs::create_dir_all(dir)?;
+
+    let pb = new_progress_bar();
+
+    let client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(3600))
+        .tcp_keepalive(Duration::from_secs(3600))
+        .connect_timeout(Duration::from_secs(15))
+        .build()
+        .unwrap();
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("failed to get url {url}"))?;
+
+    if !response.status().is_success() {
+        Err(anyhow::anyhow!(
+            "failed to download image: {}",
+            response.status()
+        ))?;
+    }
+    pb.inc_length(
+        response
+            .content_length()
+            .ok_or_else(|| anyhow::anyhow!("Missing content length"))?,
+    );
+    let mut file = tokio::fs::File::create(path)
+        .await
+        .with_context(|| format!("failed to create {destination_path}"))?;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk
+            .with_context(|| format!("failed reading response from {url}"))?;
+        file.write_all(&chunk)
+            .await
+            .with_context(|| format!("failed writing {path:?}"))?;
+        pb.inc(chunk.len().try_into().unwrap());
+    }
+    pb.finish();
+
+    Ok(())
 }

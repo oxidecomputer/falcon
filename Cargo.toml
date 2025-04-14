@@ -30,7 +30,7 @@ slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
 toml = "0.8"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "bdaaf207c7d7f9a6d905a3589eb8e159aa78df12" }
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "b9de7a4bf1ec42a50d896695872d3deb374d18ad" }
 libc = "0.2"
 tokio = { version = "1.44.2", features = ["full"] }
 tokio-tungstenite = "0.21"
@@ -45,3 +45,10 @@ oxnet = { version = "0.1.1", default-features = false }
 indicatif = "0.17.11"
 xz2 = "0.1.7"
 camino-tempfile = "1.1.1"
+cargo_toml = "0.22.1"
+quote = "1.0.40"
+prettyplease = "0.2"
+syn = "2.0"
+sha2 = "0.10.8"
+anstyle = "1.0.10"
+base16ct = { version = "0.2.0", features = ["alloc"] }
