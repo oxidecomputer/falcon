@@ -10,6 +10,7 @@ mod util;
 
 pub mod cli;
 pub mod error;
+pub mod ovmf;
 pub mod propolis;
 pub mod serial;
 pub mod unit;
@@ -20,6 +21,7 @@ use error::Error;
 use futures::future::join_all;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use ovmf::ensure_ovmf_fd;
 use propolis::ensure_propolis_binary;
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
@@ -538,7 +540,15 @@ impl Runner {
     }
 
     async fn preflight(&mut self) -> Result<(), Error> {
-        ensure_propolis_binary(PROPOLIS_REV, &self.log).await?;
+        if self.propolis_binary == DEFAULT_PROPOLIS_SERVER {
+            ensure_propolis_binary(
+                PROPOLIS_REV,
+                self.falcon_dir.as_str(),
+                &self.log,
+            )
+            .await?;
+        }
+        ensure_ovmf_fd(self.falcon_dir.as_str(), &self.log).await?;
         // Verify all required executables are usable.
         let out = Command::new(&self.propolis_binary).args(["-V"]).output();
         if out.is_err() {
@@ -633,9 +643,28 @@ impl Runner {
 
         // Destroy workspace
         info!(self.log, "destroying workspace at {}", self.falcon_dir);
-        fs::remove_dir_all(&self.falcon_dir)?;
+        self.clean_workspace()?;
 
         Ok(())
+    }
+
+    fn clean_workspace(&self) -> Result<(), Error> {
+        let falcon_dir = std::fs::read_dir(&self.falcon_dir)?;
+        for ent in falcon_dir {
+            let p = ent?.path();
+            // Dont delete downloaded binaries on each launch these are checked to
+            // ensure they are what falcon expects
+            if p == Path::new("bin") {
+                continue;
+            }
+            if p.is_dir() {
+                std::fs::remove_dir_all(&p)?;
+            }
+            if p.is_file() {
+                std::fs::remove_file(p)?;
+            }
+        }
+        todo!()
     }
 
     /// Run a command synchronously in the vm.
@@ -1484,7 +1513,7 @@ pub(crate) async fn launch_vm(
     let mut cmd = Command::new(propolis_binary);
     let mut args = vec![
         "run".to_string(),
-        "/var/ovmf/OVMF_CODE.fd".to_string(),
+        format!("{}/bin/OVMF_CODE.fd", falcon_dir.as_str()),
         sockaddr.clone(),
     ];
     if let Some(vnc_port) = node.vnc_port {
