@@ -3,8 +3,6 @@ name = "libfalcon"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 thiserror.workspace = true
 anyhow.workspace = true
@@ -33,7 +31,15 @@ camino.workspace = true
 reqwest.workspace = true
 indicatif.workspace = true
 xz2.workspace = true
-anstyle = "1.0.10"
+anstyle.workspace = true
+sha2.workspace = true
+base16ct.workspace = true
 
 [dev-dependencies]
 camino-tempfile.workspace = true
+
+[build-dependencies]
+cargo_toml.workspace = true
+quote.workspace = true
+prettyplease.workspace = true
+syn.workspace = true

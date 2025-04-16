@@ -142,6 +142,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -206,6 +212,16 @@ checksum = "cb905055fa81e4d427f919b2cd0d76a998267de7d225ea767a1894743a5263c2"
 dependencies = [
  "camino",
  "tempfile",
+]
+
+[[package]]
+name = "cargo_toml"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02260d489095346e5cafd04dea8e8cb54d1d74fcd759022a9b72986ebe9a1257"
+dependencies = [
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -1143,25 +1159,31 @@ version = "0.1.0"
 dependencies = [
  "anstyle",
  "anyhow",
+ "base16ct",
  "camino",
  "camino-tempfile",
+ "cargo_toml",
  "clap",
  "colored",
  "futures",
  "indicatif",
  "libc",
  "libnet",
+ "prettyplease",
  "propolis-client",
+ "quote",
  "rand 0.8.5",
  "regex",
  "reqwest",
  "ron",
  "serde",
+ "sha2",
  "slog",
  "slog-async",
  "slog-envlogger",
  "slog-term",
  "smf",
+ "syn 2.0.100",
  "tabwriter",
  "thiserror 1.0.69",
  "tokio",
@@ -1439,6 +1461,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbc83ee4a840062f368f9096d80077a9841ec117e17e7f700df81958f1451254"
 
 [[package]]
+name = "prettyplease"
+version = "0.2.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "664ec5419c51e34154eec046ebcba56312d5a2fc3b09a06da188e1ad21afadf6"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.100",
+]
+
+[[package]]
 name = "proc-macro-crate"
 version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1549,7 +1581,7 @@ dependencies = [
 [[package]]
 name = "propolis-client"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=bdaaf207c7d7f9a6d905a3589eb8e159aa78df12#bdaaf207c7d7f9a6d905a3589eb8e159aa78df12"
+source = "git+https://github.com/oxidecomputer/propolis?rev=02fdf06bb279fc1b1393f993b90cbe84b7e9f281#02fdf06bb279fc1b1393f993b90cbe84b7e9f281"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -1573,7 +1605,7 @@ dependencies = [
 [[package]]
 name = "propolis_api_types"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=bdaaf207c7d7f9a6d905a3589eb8e159aa78df12#bdaaf207c7d7f9a6d905a3589eb8e159aa78df12"
+source = "git+https://github.com/oxidecomputer/propolis?rev=02fdf06bb279fc1b1393f993b90cbe84b7e9f281#02fdf06bb279fc1b1393f993b90cbe84b7e9f281"
 dependencies = [
  "crucible-client-types",
  "propolis_types",
@@ -1587,7 +1619,7 @@ dependencies = [
 [[package]]
 name = "propolis_types"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=bdaaf207c7d7f9a6d905a3589eb8e159aa78df12#bdaaf207c7d7f9a6d905a3589eb8e159aa78df12"
+source = "git+https://github.com/oxidecomputer/propolis?rev=02fdf06bb279fc1b1393f993b90cbe84b7e9f281#02fdf06bb279fc1b1393f993b90cbe84b7e9f281"
 dependencies = [
  "schemars",
  "serde",
@@ -2116,6 +2148,17 @@ name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
 dependencies = [
  "cfg-if",
  "cpufeatures",

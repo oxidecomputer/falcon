@@ -15,22 +15,6 @@ development environment for networked systems.
   recommended. While nested virt can be made to work, it often requires wizardry
   and is known to have flaky behaviors.
 
-## Installing
-
-Install `propolis-server`.  The`get-propolis.sh` script can also be used to
-automatically install propolis-server form the current Falcon CI build.
-
-Set up propolis, firmware and OS base images.
-```
-./get-propolis.sh
-./get-ovmf.sh
-./setup-base-images.sh
-```
-
-Falcon-enabled propolis builds are kicked out by Propolis CI. See
-[this run](https://github.com/oxidecomputer/propolis/runs/18723647907)
-as an example.
-
 ## QuickStart
 
 To get a ready-to-go Falcon project use the
