@@ -542,6 +542,7 @@ impl Runner {
     async fn preflight(&mut self) -> Result<(), Error> {
         if self.propolis_binary == DEFAULT_PROPOLIS_SERVER {
             ensure_propolis_binary(
+                // Tied to cargo dependency, see build.rs for details.
                 PROPOLIS_REV,
                 self.falcon_dir.as_str(),
                 &self.log,
@@ -652,8 +653,9 @@ impl Runner {
         let falcon_dir = std::fs::read_dir(&self.falcon_dir)?;
         for ent in falcon_dir {
             let p = ent?.path();
-            // Dont delete downloaded binaries on each launch these are checked to
-            // ensure they are what falcon expects
+            // Don't delete downloaded binaries on each launch. These are
+            // checked to ensure they are what falcon expects. Everything
+            // else (topology models and state) get deleted.
             if p == Path::new(&format!("{}/bin", self.falcon_dir.as_str())) {
                 continue;
             }

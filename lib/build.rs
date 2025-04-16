@@ -1,3 +1,11 @@
+//! This file generates a rust file with a single constant in it,
+//! PROPOLIS_REV, that holds the git revision of propolis that
+//! this build expects. The expected revision is pulled from
+//! the workspace Cargo.toml. This constant is used to automatically
+//! download propolis from buildomat CI artifacts as a part of
+//! the topology preflight process, ensuring that the propolis binary
+//! we use matches the propolis API revision falcon was built against.
+
 use cargo_toml::Manifest;
 use quote::quote;
 use std::env;
