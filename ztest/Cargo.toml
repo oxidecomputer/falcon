@@ -8,5 +8,4 @@ zone = { git = "https://github.com/oxidecomputer/zone" }
 
 libnet.workspace = true
 anyhow.workspace = true
-tokio.workspace = true
 oxnet.workspace = true
