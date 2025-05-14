@@ -90,6 +90,7 @@ macro_rules! cmd {
 }
 
 pub const DEFAULT_FALCON_DIR: &str = ".falcon";
+pub const DEFAULT_PROPOLIS_RELATIVE_PATH: &str = "bin/propolis-server";
 pub const DEFAULT_PROPOLIS_SERVER: &str = ".falcon/bin/propolis-server";
 const ZFS_BIN: &str = "/usr/sbin/zfs";
 const DLADM_BIN: &str = "/usr/sbin/dladm";
@@ -308,6 +309,14 @@ impl Runner {
     pub fn set_falcon_dir(&mut self, dir: &Utf8Path) {
         self.falcon_dir = dir.to_string().into();
         info!(self.log, "set falcon dir to {}", self.falcon_dir);
+    }
+
+    pub fn set_propolis_binary(&mut self, path: Option<String>) {
+        self.propolis_binary = match path {
+            None => String::from(DEFAULT_PROPOLIS_SERVER),
+            Some(p) => p,
+        };
+        info!(self.log, "set propolis binary to {}", self.propolis_binary);
     }
 
     /// Create a new node within this deployment with the given name. Names must
@@ -529,6 +538,11 @@ impl Runner {
     /// set up the serial console for each VM and, run any user defined exec
     /// statements.
     pub async fn launch(&mut self) -> Result<(), Error> {
+        info!(
+            self.log,
+            "launching runner for deployment: {}", self.deployment.name
+        );
+
         self.preflight().await?;
         match self.do_launch().await {
             Ok(()) => Ok(()),
@@ -540,24 +554,34 @@ impl Runner {
     }
 
     async fn preflight(&mut self) -> Result<(), Error> {
-        if self.propolis_binary == DEFAULT_PROPOLIS_SERVER {
-            ensure_propolis_binary(
-                // Tied to cargo dependency, see build.rs for details.
-                PROPOLIS_REV,
-                self.falcon_dir.as_str(),
-                &self.log,
-            )
-            .await?;
-        }
+        info!(
+            self.log,
+            "starting preflight for deployment {}", self.deployment.name
+        );
+
+        ensure_propolis_binary(
+            // Tied to cargo dependency, see build.rs for details.
+            PROPOLIS_REV,
+            self.propolis_binary.as_str(),
+            &self.log,
+        )
+        .await?;
+
         ensure_ovmf_fd(self.falcon_dir.as_str(), &self.log).await?;
         // Verify all required executables are usable.
-        let out = Command::new(&self.propolis_binary).args(["-V"]).output();
-        if out.is_err() {
+        if let Err(e) =
+            Command::new(&self.propolis_binary).args(["-V"]).output()
+        {
+            error!(
+                self.log,
+                "error running propolis_binary command ({}): {e}",
+                self.propolis_binary
+            );
             return Err(Error::Exec(format!(
-                "failed to find {}",
+                "error running propolis_binary command ({}): {e}",
                 &self.propolis_binary
             )));
-        }
+        };
 
         // ensure falcon working dir
         fs::create_dir_all(&self.falcon_dir)?;
@@ -620,6 +644,9 @@ impl Runner {
     /// Tear down all the nodes, followed by the links and the ZFS pool
     // TODO in parallel
     pub fn destroy(&self) -> Result<(), Error> {
+        info!(self.log, "destroying deployment {}", self.deployment.name);
+
+        // Destroy nodes
         info!(self.log, "destroying nodes");
         for n in self.deployment.nodes.iter() {
             n.destroy(self)?;
@@ -650,7 +677,16 @@ impl Runner {
     }
 
     fn clean_workspace(&self) -> Result<(), Error> {
-        let falcon_dir = std::fs::read_dir(&self.falcon_dir)?;
+        let falcon_dir = match std::fs::read_dir(&self.falcon_dir) {
+            Ok(dir) => dir,
+            Err(e) => {
+                error!(
+                    self.log,
+                    "read_dir failed for {}: {e}", self.falcon_dir
+                );
+                return Err(Error::IO(e));
+            }
+        };
         for ent in falcon_dir {
             let p = ent?.path();
             // Don't delete downloaded binaries on each launch. These are
@@ -660,10 +696,16 @@ impl Runner {
                 continue;
             }
             if p.is_dir() {
-                std::fs::remove_dir_all(&p)?;
+                if let Err(e) = std::fs::remove_dir_all(&p) {
+                    error!(self.log, "failed to remove dir {}", p.display());
+                    return Err(Error::IO(e));
+                };
             }
             if p.is_file() {
-                std::fs::remove_file(p)?;
+                if let Err(e) = std::fs::remove_file(&p) {
+                    error!(self.log, "failed to remove dir {}", p.display());
+                    return Err(Error::IO(e));
+                };
             }
         }
         Ok(())
@@ -801,6 +843,10 @@ impl Deployment {
 impl Drop for Runner {
     fn drop(&mut self) {
         if !self.persistent {
+            info!(
+                self.log,
+                "destroying runner for deployment {}", self.deployment.name
+            );
             match self.destroy() {
                 Ok(()) => {}
                 Err(e) => error!(self.log, "cleanup failed: {}", e),
@@ -1312,12 +1358,18 @@ impl Node {
             Ok(pid) => match pid.parse::<i32>() {
                 Ok(pid) => pid,
                 Err(e) => {
-                    warn!(r.log, "parse propolis pid for {}: {}", self.name, e);
+                    warn!(
+                        r.log,
+                        "parse propolis pid for {} ({path}): {e}", self.name
+                    );
                     return Ok(());
                 }
             },
             Err(e) => {
-                warn!(r.log, "get propolis pid for {}: {}", self.name, e);
+                warn!(
+                    r.log,
+                    "get propolis pid for {} ({path}): {e}", self.name
+                );
                 return Ok(());
             }
         };
@@ -1499,6 +1551,7 @@ pub(crate) async fn launch_vm(
     falcon_dir: &Utf8Path,
     components: Option<&BTreeMap<SpecKey, ComponentV0>>,
 ) -> Result<u16, Error> {
+    info!(log, "launching node {}", node.name);
     // launch propolis-server
 
     let mut path = falcon_dir.to_path_buf();
