@@ -6,8 +6,6 @@
 
 use anyhow::{anyhow, Result};
 
-use crate::DEFAULT_PROPOLIS_RELATIVE_PATH;
-
 /// Test that when an empty deployment is launched the correct ZFS pools get
 /// created and when a deployment is destroyd the associated zfs pools are
 /// destroyed.
@@ -17,11 +15,7 @@ async fn empty_launch() -> Result<()> {
 
     // Each test must use a separate falcon dir
     let falcon_dir = camino_tempfile::tempdir()?;
-    d.set_falcon_dir(falcon_dir.path());
-    d.set_propolis_binary(Some(format!(
-        "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
-        falcon_dir.path()
-    )));
+    d.set_falcon_dir(Some(falcon_dir.path().to_string()));
 
     d.persistent = true;
     d.launch().await?;
@@ -39,11 +33,7 @@ async fn solo_launch() -> Result<()> {
 
     // Each test must use a separate falcon dir
     let falcon_dir = camino_tempfile::tempdir()?;
-    d.set_falcon_dir(falcon_dir.path());
-    d.set_propolis_binary(Some(format!(
-        "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
-        falcon_dir.path()
-    )));
+    d.set_falcon_dir(Some(falcon_dir.path().to_string()));
 
     let z = d.node("violin", "helios-2.5", 1, 1024);
 
@@ -84,11 +74,7 @@ async fn duo_launch() -> Result<()> {
 
     // Each test must use a separate falcon dir
     let falcon_dir = camino_tempfile::tempdir()?;
-    d.set_falcon_dir(falcon_dir.path());
-    d.set_propolis_binary(Some(format!(
-        "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
-        falcon_dir.path()
-    )));
+    d.set_falcon_dir(Some(falcon_dir.path().to_string()));
 
     let violin = d.node("violin", "helios-2.5", 1, 1024);
     let piano = d.node("piano", "helios-2.5", 1, 1024);
