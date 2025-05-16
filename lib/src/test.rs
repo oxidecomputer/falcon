@@ -15,7 +15,7 @@ async fn empty_launch() -> Result<()> {
 
     // Each test must use a separate falcon dir
     let falcon_dir = camino_tempfile::tempdir()?;
-    d.set_falcon_dir(falcon_dir.path());
+    d.set_falcon_dir(Some(falcon_dir.path().to_string()));
 
     d.persistent = true;
     d.launch().await?;
@@ -33,7 +33,7 @@ async fn solo_launch() -> Result<()> {
 
     // Each test must use a separate falcon dir
     let falcon_dir = camino_tempfile::tempdir()?;
-    d.set_falcon_dir(falcon_dir.path());
+    d.set_falcon_dir(Some(falcon_dir.path().to_string()));
 
     let z = d.node("violin", "helios-2.5", 1, 1024);
 
@@ -74,7 +74,7 @@ async fn duo_launch() -> Result<()> {
 
     // Each test must use a separate falcon dir
     let falcon_dir = camino_tempfile::tempdir()?;
-    d.set_falcon_dir(falcon_dir.path());
+    d.set_falcon_dir(Some(falcon_dir.path().to_string()));
 
     let violin = d.node("violin", "helios-2.5", 1, 1024);
     let piano = d.node("piano", "helios-2.5", 1, 1024);
