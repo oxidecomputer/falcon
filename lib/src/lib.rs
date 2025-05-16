@@ -107,9 +107,7 @@ pub struct Runner {
     pub persistent: bool,
 
     /// The propolis-server binary to use
-    propolis_binary: String,
-    // private field indicating propolis_binary was specified by user
-    custom_propolis_binary: bool,
+    custom_propolis_binary: Option<String>,
 
     pub log: Logger,
 
@@ -302,8 +300,7 @@ impl Runner {
             deployment: Deployment::new(name),
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
-            propolis_binary: DEFAULT_PROPOLIS_SERVER.to_string(),
-            custom_propolis_binary: false,
+            custom_propolis_binary: None,
             dataset: dataset(),
             falcon_dir: DEFAULT_FALCON_DIR.to_string(),
         }
@@ -312,39 +309,35 @@ impl Runner {
     pub fn set_falcon_dir(&mut self, dir: Option<String>) {
         self.falcon_dir = dir.unwrap_or(DEFAULT_FALCON_DIR.to_string());
         info!(self.log, "set falcon dir to {}", &self.falcon_dir);
-        if !self.custom_propolis_binary {
-            info!(self.log, "custom propolis binary not defined, updating with new falcon dir");
-            self.set_propolis_binary(None);
-        }
     }
 
-    pub fn get_falcon_dir(&self) -> &str {
-        &self.falcon_dir
+    pub fn get_falcon_dir(&self) -> String {
+        String::from(&self.falcon_dir)
     }
 
     pub fn set_propolis_binary(&mut self, path: Option<String>) {
         // if path is None, we always recalculate the path using the current falcon_dir.
         // this makes the propolis binary is always updated with the falcon_dir unless
         // a user explicitly sets the path
-        self.propolis_binary = match path {
-            None => {
-                self.custom_propolis_binary = false;
-                format!("{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}", &self.falcon_dir)
-            }
-            Some(path) => {
-                self.custom_propolis_binary = true;
-                path
-            }
-        };
-        info!(self.log, "set propolis binary to {}", &self.propolis_binary);
+        self.custom_propolis_binary = path.clone();
+        info!(
+            self.log,
+            "set propolis binary to {}",
+            path.unwrap_or(format!(
+                "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
+                &self.falcon_dir
+            ))
+        );
     }
 
-    pub fn get_propolis_binary(&self) -> &str {
-        &self.propolis_binary
-    }
-
-    pub fn propolis_binary_is_custom(&self) -> bool {
-        self.custom_propolis_binary
+    pub fn get_propolis_binary(&self) -> String {
+        match self.custom_propolis_binary {
+            None => format!(
+                "{}/DEFAULT_PROPOLIS_RELATIVE_PATH",
+                self.get_falcon_dir()
+            ),
+            Some(ref bin) => String::from(bin),
+        }
     }
 
     /// Create a new node within this deployment with the given name. Names must
@@ -587,12 +580,12 @@ impl Runner {
             "starting preflight for deployment {}", self.deployment.name
         );
 
-        let falcon_dir = self.get_falcon_dir();
-        let propolis_binary = self.get_propolis_binary();
+        let falcon_dir = &self.get_falcon_dir();
+        let propolis_binary = &self.get_propolis_binary();
 
         // We need to ensure the propolis-server binary is present and valid unless
         // the user has explicitly pointed to a binary, then they are responsible.
-        if !self.propolis_binary_is_custom() {
+        if self.custom_propolis_binary.is_none() {
             ensure_propolis_binary(
                 // Tied to cargo dependency, see build.rs for details.
                 PROPOLIS_REV,
@@ -1310,7 +1303,7 @@ impl Node {
 
         let port = launch_vm(
             &r.log,
-            &r.propolis_binary,
+            &r.get_propolis_binary(),
             &id,
             self,
             &r.falcon_dir,
