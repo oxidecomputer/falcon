@@ -561,7 +561,12 @@ impl Runner {
     pub async fn launch(&mut self) -> Result<(), Error> {
         info!(
             self.log,
-            "launching runner for deployment: {}", self.deployment.name
+            "launching runner: deployment({}) persistent({}) custom_propolis_binary({:?}) dataset({}) falcon_dir({})",
+            self.deployment.name,
+            self.persistent,
+            self.custom_propolis_binary,
+            self.dataset,
+            self.falcon_dir,
         );
 
         self.preflight().await?;
