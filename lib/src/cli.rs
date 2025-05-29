@@ -284,20 +284,20 @@ where
     let opts: Opts<T> = Opts::<T>::parse();
     match opts.subcmd {
         SubCommand::Preflight(p) => {
-            r.falcon_dir = p.falcon_dir;
+            r.set_falcon_dir(Some(p.falcon_dir.to_string()));
             preflight(r).await;
             Ok(RunMode::Unspec)
         }
         SubCommand::Launch(l) => {
             if let Some(path) = l.propolis {
-                r.propolis_binary = path
+                r.set_propolis_binary(Some(path));
             }
-            r.falcon_dir = l.falcon_dir;
+            r.set_falcon_dir(Some(l.falcon_dir.to_string()));
             launch(r).await;
             Ok(RunMode::Launch)
         }
         SubCommand::Destroy(d) => {
-            r.falcon_dir = d.falcon_dir;
+            r.set_falcon_dir(Some(d.falcon_dir.to_string()));
             destroy(r);
             Ok(RunMode::Destroy)
         }
@@ -337,8 +337,12 @@ where
             };
             if c.all {
                 for x in &r.deployment.nodes {
-                    hyperstart(&x.name, propolis_binary.clone(), &c.falcon_dir)
-                        .await?;
+                    hyperstart(
+                        &x.name,
+                        propolis_binary.clone(),
+                        c.falcon_dir.clone().into(),
+                    )
+                    .await?;
                 }
             } else {
                 match c.vm_name {
@@ -348,7 +352,12 @@ where
                         ))
                     }
                     Some(ref n) => {
-                        hyperstart(n, propolis_binary, &c.falcon_dir).await?
+                        hyperstart(
+                            n,
+                            propolis_binary,
+                            c.falcon_dir.clone().into(),
+                        )
+                        .await?
                     }
                 }
             }
@@ -367,7 +376,7 @@ where
             Ok(RunMode::Unspec)
         }
         SubCommand::Exec(ref c) => {
-            r.falcon_dir = c.falcon_dir.clone();
+            r.set_falcon_dir(Some(c.falcon_dir.clone().into()));
             exec(r, &c.node, &c.command).await?;
             Ok(RunMode::Unspec)
         }
@@ -762,10 +771,10 @@ async fn hyperstop(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
 async fn hyperstart(
     name: &str,
     propolis_binary: String,
-    falcon_dir: &Utf8Path,
+    falcon_dir: String,
 ) -> Result<(), Error> {
     // read topology
-    let mut path = falcon_dir.to_path_buf();
+    let mut path: Utf8PathBuf = falcon_dir.clone().into();
     path.push("topology.ron");
     let topo_ron = fs::read_to_string(&path)?;
     let d: Deployment = from_str(&topo_ron)?;
@@ -788,7 +797,7 @@ async fn hyperstart(
     path.pop();
     let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir, None)
+    crate::launch_vm(&log, &propolis_binary, &id, node, &falcon_dir, None)
         .await?;
 
     Ok(())

@@ -7,10 +7,10 @@ use std::os::unix::fs::PermissionsExt;
 
 pub(crate) async fn ensure_propolis_binary(
     rev: &str,
-    falcon_dir: &str,
+    propolis_binary: &str,
     log: &Logger,
 ) -> Result<()> {
-    let path = format!("{falcon_dir}/bin/propolis-server");
+    let path = String::from(propolis_binary);
     let Some(local_digest) = get_downloaded_propolis_digest(&path)? else {
         info!(log, "propolis-server binary not found");
         return download_propolis(rev, &path, log).await;
@@ -26,7 +26,10 @@ pub(crate) async fn ensure_propolis_binary(
 }
 
 async fn download_propolis(rev: &str, path: &str, log: &Logger) -> Result<()> {
-    info!(log, "downloading propolis server rev {rev}");
+    info!(
+        log,
+        "downloading propolis server rev {rev}, writing to {path}"
+    );
     let url = format!(
         "https://buildomat.eng.oxide.computer/public/file/oxidecomputer/propolis/falcon/{rev}/propolis-server"
     );

@@ -90,6 +90,7 @@ macro_rules! cmd {
 }
 
 pub const DEFAULT_FALCON_DIR: &str = ".falcon";
+pub const DEFAULT_PROPOLIS_RELATIVE_PATH: &str = "bin/propolis-server";
 pub const DEFAULT_PROPOLIS_SERVER: &str = ".falcon/bin/propolis-server";
 const ZFS_BIN: &str = "/usr/sbin/zfs";
 const DLADM_BIN: &str = "/usr/sbin/dladm";
@@ -106,7 +107,7 @@ pub struct Runner {
     pub persistent: bool,
 
     /// The propolis-server binary to use
-    pub propolis_binary: String,
+    custom_propolis_binary: Option<String>,
 
     pub log: Logger,
 
@@ -116,7 +117,7 @@ pub struct Runner {
     /// The location of the ".falcon" directory for a given deployment
     ///
     /// This directory is created by falcon and stores configuration.
-    pub falcon_dir: Utf8PathBuf,
+    falcon_dir: String,
 }
 
 /// A Deployment is the top level Falcon object. It contains a set of nodes and
@@ -299,15 +300,44 @@ impl Runner {
             deployment: Deployment::new(name),
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
-            propolis_binary: DEFAULT_PROPOLIS_SERVER.into(),
+            custom_propolis_binary: None,
             dataset: dataset(),
-            falcon_dir: DEFAULT_FALCON_DIR.into(),
+            falcon_dir: DEFAULT_FALCON_DIR.to_string(),
         }
     }
 
-    pub fn set_falcon_dir(&mut self, dir: &Utf8Path) {
-        self.falcon_dir = dir.to_string().into();
-        info!(self.log, "set falcon dir to {}", self.falcon_dir);
+    pub fn set_falcon_dir(&mut self, dir: Option<String>) {
+        self.falcon_dir = dir.unwrap_or(DEFAULT_FALCON_DIR.to_string());
+        info!(self.log, "set falcon dir to {}", &self.falcon_dir);
+    }
+
+    pub fn get_falcon_dir(&self) -> String {
+        String::from(&self.falcon_dir)
+    }
+
+    pub fn set_propolis_binary(&mut self, path: Option<String>) {
+        // if path is None, we always recalculate the path using the current falcon_dir.
+        // this makes the propolis binary is always updated with the falcon_dir unless
+        // a user explicitly sets the path
+        self.custom_propolis_binary = path.clone();
+        info!(
+            self.log,
+            "set propolis binary to {}",
+            path.unwrap_or(format!(
+                "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
+                &self.falcon_dir
+            ))
+        );
+    }
+
+    pub fn get_propolis_binary(&self) -> String {
+        match self.custom_propolis_binary {
+            None => format!(
+                "{}/DEFAULT_PROPOLIS_RELATIVE_PATH",
+                self.get_falcon_dir()
+            ),
+            Some(ref bin) => String::from(bin),
+        }
     }
 
     /// Create a new node within this deployment with the given name. Names must
@@ -529,6 +559,16 @@ impl Runner {
     /// set up the serial console for each VM and, run any user defined exec
     /// statements.
     pub async fn launch(&mut self) -> Result<(), Error> {
+        info!(
+            self.log,
+            "launching runner: deployment({}) persistent({}) custom_propolis_binary({:?}) dataset({}) falcon_dir({})",
+            self.deployment.name,
+            self.persistent,
+            self.custom_propolis_binary,
+            self.dataset,
+            self.falcon_dir,
+        );
+
         self.preflight().await?;
         match self.do_launch().await {
             Ok(()) => Ok(()),
@@ -540,32 +580,45 @@ impl Runner {
     }
 
     async fn preflight(&mut self) -> Result<(), Error> {
-        if self.propolis_binary == DEFAULT_PROPOLIS_SERVER {
+        info!(
+            self.log,
+            "starting preflight for deployment {}", self.deployment.name
+        );
+
+        let falcon_dir = &self.get_falcon_dir();
+        let propolis_binary = &self.get_propolis_binary();
+
+        // We need to ensure the propolis-server binary is present and valid unless
+        // the user has explicitly pointed to a binary, then they are responsible.
+        if self.custom_propolis_binary.is_none() {
             ensure_propolis_binary(
                 // Tied to cargo dependency, see build.rs for details.
                 PROPOLIS_REV,
-                self.falcon_dir.as_str(),
+                propolis_binary,
                 &self.log,
             )
             .await?;
         }
-        ensure_ovmf_fd(self.falcon_dir.as_str(), &self.log).await?;
+
+        ensure_ovmf_fd(falcon_dir, &self.log).await?;
         // Verify all required executables are usable.
-        let out = Command::new(&self.propolis_binary).args(["-V"]).output();
-        if out.is_err() {
+        if let Err(e) = Command::new(propolis_binary).args(["-V"]).output() {
+            error!(
+                self.log,
+                "error running propolis_binary command ({propolis_binary}): {e}"
+            );
             return Err(Error::Exec(format!(
-                "failed to find {}",
-                &self.propolis_binary
+                "error running propolis_binary command ({propolis_binary}): {e}"
             )));
-        }
+        };
 
         // ensure falcon working dir
-        fs::create_dir_all(&self.falcon_dir)?;
+        fs::create_dir_all(falcon_dir)?;
 
         // write falcon config
         let pretty = PrettyConfig::new().separate_tuple_members(true);
         let out = format!("{}\n", to_string_pretty(&self.deployment, pretty)?);
-        let mut topo_path = self.falcon_dir.clone();
+        let mut topo_path: Utf8PathBuf = falcon_dir.into();
         topo_path.push("topology.ron");
         fs::write(&topo_path, out)?;
 
@@ -620,6 +673,9 @@ impl Runner {
     /// Tear down all the nodes, followed by the links and the ZFS pool
     // TODO in parallel
     pub fn destroy(&self) -> Result<(), Error> {
+        info!(self.log, "destroying deployment {}", self.deployment.name);
+
+        // Destroy nodes
         info!(self.log, "destroying nodes");
         for n in self.deployment.nodes.iter() {
             n.destroy(self)?;
@@ -650,7 +706,16 @@ impl Runner {
     }
 
     fn clean_workspace(&self) -> Result<(), Error> {
-        let falcon_dir = std::fs::read_dir(&self.falcon_dir)?;
+        let falcon_dir = match std::fs::read_dir(&self.falcon_dir) {
+            Ok(dir) => dir,
+            Err(e) => {
+                error!(
+                    self.log,
+                    "read_dir failed for {}: {e}", self.falcon_dir
+                );
+                return Err(Error::IO(e));
+            }
+        };
         for ent in falcon_dir {
             let p = ent?.path();
             // Don't delete downloaded binaries on each launch. These are
@@ -660,10 +725,16 @@ impl Runner {
                 continue;
             }
             if p.is_dir() {
-                std::fs::remove_dir_all(&p)?;
+                if let Err(e) = std::fs::remove_dir_all(&p) {
+                    error!(self.log, "failed to remove dir {}", p.display());
+                    return Err(Error::IO(e));
+                };
             }
             if p.is_file() {
-                std::fs::remove_file(p)?;
+                if let Err(e) = std::fs::remove_file(&p) {
+                    error!(self.log, "failed to remove dir {}", p.display());
+                    return Err(Error::IO(e));
+                };
             }
         }
         Ok(())
@@ -676,7 +747,7 @@ impl Runner {
     }
 
     async fn do_exec(&self, name: &str, cmd: &str) -> Result<String, Error> {
-        let mut path = self.falcon_dir.clone();
+        let mut path: Utf8PathBuf = self.falcon_dir.clone().into();
         path.push(format!("{name}.uuid"));
         let id = match fs::read_to_string(&path) {
             Ok(u) => u,
@@ -801,6 +872,10 @@ impl Deployment {
 impl Drop for Runner {
     fn drop(&mut self) {
         if !self.persistent {
+            info!(
+                self.log,
+                "destroying runner for deployment {}", self.deployment.name
+            );
             match self.destroy() {
                 Ok(()) => {}
                 Err(e) => error!(self.log, "cleanup failed: {}", e),
@@ -1230,9 +1305,10 @@ impl Node {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
+
         let port = launch_vm(
             &r.log,
-            &r.propolis_binary,
+            &r.get_propolis_binary(),
             &id,
             self,
             &r.falcon_dir,
@@ -1306,18 +1382,24 @@ impl Node {
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
         // get propolis pid
-        let mut path = r.falcon_dir.clone();
+        let mut path: Utf8PathBuf = r.falcon_dir.clone().into();
         path.push(format!("{}.pid", self.name));
         let pid = match fs::read_to_string(&path) {
             Ok(pid) => match pid.parse::<i32>() {
                 Ok(pid) => pid,
                 Err(e) => {
-                    warn!(r.log, "parse propolis pid for {}: {}", self.name, e);
+                    warn!(
+                        r.log,
+                        "parse propolis pid for {} ({path}): {e}", self.name
+                    );
                     return Ok(());
                 }
             },
             Err(e) => {
-                warn!(r.log, "get propolis pid for {}: {}", self.name, e);
+                warn!(
+                    r.log,
+                    "get propolis pid for {} ({path}): {e}", self.name
+                );
                 return Ok(());
             }
         };
@@ -1496,12 +1578,13 @@ pub(crate) async fn launch_vm(
     propolis_binary: &str,
     id: &uuid::Uuid,
     node: &Node,
-    falcon_dir: &Utf8Path,
+    falcon_dir: &String,
     components: Option<&BTreeMap<SpecKey, ComponentV0>>,
 ) -> Result<u16, Error> {
+    info!(log, "launching node {}", node.name);
     // launch propolis-server
 
-    let mut path = falcon_dir.to_path_buf();
+    let mut path: Utf8PathBuf = falcon_dir.clone().into();
 
     path.push(format!("{}.out", node.name));
     let stdout = fs::File::create(&path)?;
