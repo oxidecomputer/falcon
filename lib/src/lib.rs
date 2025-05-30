@@ -333,7 +333,7 @@ impl Runner {
     pub fn get_propolis_binary(&self) -> String {
         match self.custom_propolis_binary {
             None => format!(
-                "{}/DEFAULT_PROPOLIS_RELATIVE_PATH",
+                "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
                 self.get_falcon_dir()
             ),
             Some(ref bin) => String::from(bin),
