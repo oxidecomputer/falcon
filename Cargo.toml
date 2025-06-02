@@ -40,7 +40,7 @@ tabwriter = { version = "1", features = ["ansi_formatting"] }
 colored = "3"
 rand = "0.8"
 camino = { version = "1.1.9", features = ["serde1"] }
-reqwest = { version = "0.12.15", default-features = false }
+reqwest = { version = "0.12.19", default-features = false }
 oxnet = { version = "0.1.2", default-features = false }
 indicatif = "0.17.11"
 xz2 = "0.1.7"
