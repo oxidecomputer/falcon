@@ -307,8 +307,11 @@ impl Runner {
     }
 
     pub fn set_falcon_dir(&mut self, dir: Option<String>) {
-        self.falcon_dir = dir.unwrap_or(DEFAULT_FALCON_DIR.to_string());
-        info!(self.log, "set falcon dir to {}", &self.falcon_dir);
+        let falcon_dir = dir.unwrap_or(DEFAULT_FALCON_DIR.to_string());
+        if self.falcon_dir != falcon_dir {
+            info!(self.log, "set falcon dir to {}", &self.falcon_dir);
+            self.falcon_dir = falcon_dir;
+        }
     }
 
     pub fn get_falcon_dir(&self) -> String {
