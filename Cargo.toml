@@ -42,7 +42,7 @@ rand = "0.8"
 camino = { version = "1.1.10", features = ["serde1"] }
 reqwest = { version = "0.12.22", default-features = false }
 oxnet = { version = "0.1.2", default-features = false }
-indicatif = "0.17.12"
+indicatif = "0.18.0"
 xz2 = "0.1.7"
 camino-tempfile = "1.4.1"
 cargo_toml = "0.22.1"
