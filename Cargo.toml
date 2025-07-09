@@ -29,7 +29,7 @@ slog = { version = "2.7", features = ["max_level_trace"] }
 slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
-toml = "0.8"
+toml = "0.9"
 propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "02fdf06bb279fc1b1393f993b90cbe84b7e9f281" }
 libc = "0.2"
 tokio = { version = "1.46.1", features = ["full"] }
