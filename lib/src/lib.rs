@@ -1145,6 +1145,7 @@ impl Node {
         from: &str,
         to: &str,
     ) -> Result<usize, Error> {
+        let tmp = format!("{to}.tmp");
         if Path::new(to).exists() {
             info!(log, "image already extracted");
             let file = std::fs::File::open(to)?;
@@ -1165,9 +1166,12 @@ impl Node {
         pb.inc_length(len);
         let in_file = pb.wrap_read(in_file);
         let mut dec = XzDecoder::new(in_file);
-        let mut outfile = std::fs::File::create(to)?;
+        let mut outfile = std::fs::File::create(&tmp)?;
         std::io::copy(&mut dec, &mut outfile)?;
         pb.finish();
+
+        std::fs::rename(tmp, to).context("rename to final image")?;
+
         Ok(outfile
             .metadata()
             .context("get file metadata")?
