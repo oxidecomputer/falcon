@@ -1804,7 +1804,9 @@ pub(crate) async fn download_large_file(
     url: &str,
     destination_path: &str,
 ) -> anyhow::Result<()> {
+    let tmp_destination_path = &format!("{destination_path}.tmp");
     let path = Path::new(destination_path);
+    let tmp_path = Path::new(tmp_destination_path);
     let dir = path.parent().ok_or_else(|| {
         anyhow!("could not determine parent dir for {destination_path}")
     })?;
@@ -1835,19 +1837,23 @@ pub(crate) async fn download_large_file(
             .content_length()
             .ok_or_else(|| anyhow::anyhow!("Missing content length"))?,
     );
-    let mut file = tokio::fs::File::create(path)
+    let mut file = tokio::fs::File::create(tmp_path)
         .await
-        .with_context(|| format!("failed to create {destination_path}"))?;
+        .with_context(|| format!("failed to create {tmp_destination_path}"))?;
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk
             .with_context(|| format!("failed reading response from {url}"))?;
         file.write_all(&chunk)
             .await
-            .with_context(|| format!("failed writing {path:?}"))?;
+            .with_context(|| format!("failed writing {tmp_path:?}"))?;
         pb.inc(chunk.len().try_into().unwrap());
     }
     pb.finish();
+
+    tokio::fs::rename(tmp_path, path).await.with_context(|| {
+        format!("failed to move {tmp_destination_path} to {destination_path}")
+    })?;
 
     Ok(())
 }
