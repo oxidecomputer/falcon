@@ -1147,7 +1147,7 @@ impl Node {
     ) -> Result<usize, Error> {
         let tmp = format!("{to}.tmp");
         if Path::new(to).exists() {
-            info!(log, "image already extracted");
+            info!(log, "image already extracted: {to}");
             let file = std::fs::File::open(to)?;
             return Ok(file
                 .metadata()
@@ -1187,7 +1187,7 @@ impl Node {
         path: &str,
     ) -> Result<(), Error> {
         if Path::new(path).exists() {
-            info!(log, "image already downloaded");
+            info!(log, "image already downloaded: {path}");
             return Ok(());
         }
         let url = format!(
@@ -1588,7 +1588,7 @@ pub(crate) async fn launch_vm(
     falcon_dir: &String,
     components: Option<&BTreeMap<SpecKey, ComponentV0>>,
 ) -> Result<u16, Error> {
-    info!(log, "launching node {}", node.name);
+    info!(log, "{}: launching node", node.name);
     // launch propolis-server
 
     let mut path: Utf8PathBuf = falcon_dir.clone().into();
@@ -1698,14 +1698,18 @@ pub(crate) async fn launch_vm(
     // we just launched the instance, so wait for it to become ready
     let mut success = false;
     for _ in 0..30 {
-        info!(log, "instance ensure: {}", node.name);
+        info!(log, "{}: instance ensure", node.name);
         match client.instance_ensure().body(&req).send().await {
             Ok(_) => {
                 success = true;
                 break;
             }
             Err(e) => {
-                warn!(log, "instance ensure error: {e}, retry in 1 second");
+                warn!(
+                    log,
+                    "{}: instance ensure error: {e}, retry in 1 second",
+                    node.name
+                );
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
@@ -1715,7 +1719,7 @@ pub(crate) async fn launch_vm(
         client.instance_ensure().body(&req).send().await?;
     }
 
-    info!(log, "instance run: {}", node.name);
+    info!(log, "{}: instance run", node.name);
     // run vm instance
     client
         .instance_state_put()
