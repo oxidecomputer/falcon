@@ -773,11 +773,13 @@ async fn hyperstart(
     propolis_binary: String,
     falcon_dir: String,
 ) -> Result<(), Error> {
+    let log = create_logger();
     // read topology
     let mut path: Utf8PathBuf = falcon_dir.clone().into();
     path.push("topology.ron");
     let topo_ron = fs::read_to_string(&path)?;
-    let d: Deployment = from_str(&topo_ron)?;
+    let mut d: Deployment = from_str(&topo_ron)?;
+    d.nodes_preflight(&log).await?;
     path.pop();
 
     let mut node = None;
@@ -795,10 +797,16 @@ async fn hyperstart(
     path.push(format!("{name}.uuid"));
     let id: uuid::Uuid = fs::read_to_string(&path)?.trim_end().parse()?;
     path.pop();
-    let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, &id, node, &falcon_dir, None)
-        .await?;
+    crate::launch_vm(
+        &log,
+        &propolis_binary,
+        &id,
+        node,
+        &falcon_dir,
+        Some(&node.components),
+    )
+    .await?;
 
     Ok(())
 }
