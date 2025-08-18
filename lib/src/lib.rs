@@ -23,6 +23,12 @@ use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use ovmf::ensure_ovmf_fd;
 use propolis::ensure_propolis_binary;
+use propolis_client::instance_spec::{
+    Board, Chipset, ComponentV0, DlpiNetworkBackend, FileStorageBackend,
+    I440Fx, InstanceSpecV0, P9fs, PciPath, SerialPort, SerialPortNumber,
+    SoftNpuP9, SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk,
+    VirtioNetworkBackend, VirtioNic,
+};
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
@@ -45,13 +51,6 @@ use uuid::Uuid;
 use xz2::read::XzDecoder;
 
 use propolis_client::types::InstanceMetadata;
-use propolis_client::types::{
-    ComponentV0, DlpiNetworkBackend, FileStorageBackend, P9fs, SerialPort,
-    SerialPortNumber, SoftNpuP9, SoftNpuPciPort, SoftNpuPort, VirtioDisk,
-    VirtioNetworkBackend, VirtioNic,
-};
-use propolis_client::PciPath;
-use propolis_client::SpecKey;
 
 // See build.rs for how this file is generated
 include!(concat!(env!("OUT_DIR"), "/propolis_version.rs"));
@@ -1034,7 +1033,7 @@ impl Node {
                         SpecKey::Name(format!("softnpu{softnpu_index}-port")),
                         ComponentV0::SoftNpuPort(SoftNpuPort {
                             link_name: format!("softnpu{softnpu_index}"),
-                            backend_id,
+                            backend_id: SpecKey::Name(backend_id.to_string()),
                         }),
                     );
 
@@ -1304,6 +1303,8 @@ impl Node {
             ComponentV0::FileStorageBackend(FileStorageBackend {
                 path: backing,
                 readonly: false,
+                block_size: 512,
+                workers: None,
             }),
         );
     }
@@ -1669,20 +1670,20 @@ pub(crate) async fn launch_vm(
         },
     };
 
-    let spec = propolis_client::types::InstanceSpecV0 {
-        board: propolis_client::types::Board {
+    //let spec = propolis_client::types::InstanceSpecV0 {
+    let spec = InstanceSpecV0 {
+        board: Board {
             cpus: node.cores,
             memory_mb: node.memory,
-            chipset: propolis_client::types::Chipset::I440Fx(
-                propolis_client::types::I440Fx { enable_pcie: false },
-            ),
+            chipset: Chipset::I440Fx(I440Fx { enable_pcie: false }),
             cpuid: None,
-            guest_hv_interface: None,
+            guest_hv_interface:
+                propolis_client::instance_spec::GuestHypervisorInterface::Bhyve,
         },
         components: if let Some(components) = components {
             components
                 .iter()
-                .map(|(spec_key, comp)| (spec_key.to_string(), comp.clone()))
+                .map(|(spec_key, comp)| (spec_key.clone(), comp.clone()))
                 .collect()
         } else {
             Default::default()
