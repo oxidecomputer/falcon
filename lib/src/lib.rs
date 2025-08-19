@@ -24,10 +24,10 @@ use indicatif::{ProgressBar, ProgressStyle};
 use ovmf::ensure_ovmf_fd;
 use propolis::ensure_propolis_binary;
 use propolis_client::instance_spec::{
-    Board, Chipset, ComponentV0, DlpiNetworkBackend, FileStorageBackend,
-    I440Fx, InstanceSpecV0, P9fs, PciPath, SerialPort, SerialPortNumber,
-    SoftNpuP9, SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk,
-    VirtioNetworkBackend, VirtioNic,
+    Board, Chipset, ComponentV0, Cpuid, CpuidEntry, CpuidVendor,
+    DlpiNetworkBackend, FileStorageBackend, I440Fx, InstanceSpecV0, P9fs,
+    PciPath, SerialPort, SerialPortNumber, SoftNpuP9, SoftNpuPciPort,
+    SoftNpuPort, SpecKey, VirtioDisk, VirtioNetworkBackend, VirtioNic,
 };
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
@@ -51,6 +51,83 @@ use uuid::Uuid;
 use xz2::read::XzDecoder;
 
 use propolis_client::types::InstanceMetadata;
+
+macro_rules! cpuid_leaf {
+    ($leaf:literal, $eax:literal, $ebx:literal, $ecx:literal, $edx:literal) => {
+        CpuidEntry {
+            leaf: $leaf,
+            subleaf: None,
+            eax: $eax,
+            ebx: $ebx,
+            ecx: $ecx,
+            edx: $edx,
+        }
+    };
+}
+
+macro_rules! cpuid_subleaf {
+    ($leaf:literal, $sl:literal, $eax:literal, $ebx:literal, $ecx:literal, $edx:literal) => {
+        CpuidEntry {
+            leaf: $leaf,
+            subleaf: Some($sl),
+            eax: $eax,
+            ebx: $ebx,
+            ecx: $ecx,
+            edx: $edx,
+        }
+    };
+}
+
+const MILAN_CPUID: [CpuidEntry; 32] = [
+    cpuid_leaf!(0x0, 0x0000000D, 0x68747541, 0x444D4163, 0x69746E65),
+    cpuid_leaf!(0x1, 0x00A00F11, 0x00000800, 0xF6F83203, 0x078BFBFF),
+    cpuid_leaf!(0x5, 0x00000000, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x6, 0x00000004, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_subleaf!(0x7, 0x0, 0x00000000, 0x219803A9, 0x00000600, 0x00000000),
+    cpuid_subleaf!(0xB, 0x0, 0x00000001, 0x00000002, 0x00000100, 0x00000000),
+    cpuid_subleaf!(0xB, 0x1, 0x00000000, 0x00000000, 0x00000201, 0x00000000),
+    cpuid_subleaf!(0xB, 0x2, 0x00000000, 0x00000000, 0x00000002, 0x00000000),
+    cpuid_subleaf!(0xD, 0x0, 0x00000007, 0x00000340, 0x00000340, 0x00000000),
+    cpuid_subleaf!(0xD, 0x1, 0x00000007, 0x00000340, 0x00000000, 0x00000000),
+    cpuid_subleaf!(0xD, 0x2, 0x00000100, 0x00000240, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x80000000, 0x80000021, 0x68747541, 0x444D4163, 0x69746E65),
+    // ecx bit 23 should be flipped true at some point, but is currently
+    // hidden and will continue to be for the moment.
+    // ecx bit 3 should be masked, but is is not and advertises support for
+    // unsupported extensions to LAPIC space.
+    //
+    // RFD 314 talks about these bits more, but we currently allow them to
+    // be wrong as they have been wrong before and we'll get to them
+    // individually later.
+    cpuid_leaf!(0x80000001, 0x00A00F11, 0x40000000, 0x444001F1, 0x27D3FBFF),
+    cpuid_leaf!(0x80000002, 0x20444D41, 0x43595045, 0x31373720, 0x36205033),
+    cpuid_leaf!(0x80000003, 0x6F432D34, 0x50206572, 0x65636F72, 0x726F7373),
+    cpuid_leaf!(0x80000004, 0x20202020, 0x20202020, 0x20202020, 0x00202020),
+    cpuid_leaf!(0x80000005, 0xFF40FF40, 0xFF40FF40, 0x20080140, 0x20080140),
+    cpuid_leaf!(0x80000006, 0x48002200, 0x68004200, 0x02006140, 0x08009140),
+    cpuid_leaf!(0x80000007, 0x00000000, 0x00000000, 0x00000000, 0x00000100),
+    cpuid_leaf!(0x80000008, 0x00003030, 0x00000205, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x8000000A, 0x00000000, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x80000019, 0xF040F040, 0xF0400000, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x8000001A, 0x00000006, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x8000001B, 0x00000000, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x8000001C, 0x00000000, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_subleaf!(
+        0x8000001D, 0x0, 0x00000121, 0x01C0003F, 0x0000003F, 0x00000000
+    ),
+    cpuid_subleaf!(
+        0x8000001D, 0x1, 0x00000122, 0x01C0003F, 0x0000003F, 0x00000000
+    ),
+    cpuid_subleaf!(
+        0x8000001D, 0x2, 0x00000143, 0x01C0003F, 0x000003FF, 0x00000002
+    ),
+    cpuid_subleaf!(
+        0x8000001D, 0x3, 0x00000163, 0x03C0003F, 0x00007FFF, 0x00000001
+    ),
+    cpuid_leaf!(0x8000001E, 0x00000000, 0x00000100, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x8000001F, 0x00000000, 0x00000000, 0x00000000, 0x00000000),
+    cpuid_leaf!(0x80000021, 0x00000045, 0x00000000, 0x00000000, 0x00000000),
+];
 
 // See build.rs for how this file is generated
 include!(concat!(env!("OUT_DIR"), "/propolis_version.rs"));
@@ -1676,7 +1753,10 @@ pub(crate) async fn launch_vm(
             cpus: node.cores,
             memory_mb: node.memory,
             chipset: Chipset::I440Fx(I440Fx { enable_pcie: false }),
-            cpuid: None,
+            cpuid: Some(Cpuid {
+                entries: MILAN_CPUID.to_vec(),
+                vendor: CpuidVendor::Amd,
+            }),
             guest_hv_interface:
                 propolis_client::instance_spec::GuestHypervisorInterface::Bhyve,
         },
