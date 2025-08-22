@@ -30,7 +30,7 @@ slog-term = "2.7"
 slog-async = "2.7"
 slog-envlogger = "2.2"
 toml = "0.8"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "18f99d3d7baff0bef938295a4e7f194972baaba1" }
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "50e8b237a1908987e57dfa4e8a171e0f49567ce4" }
 libc = "0.2"
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-tungstenite = "0.21"
