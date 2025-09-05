@@ -1194,7 +1194,7 @@ impl Node {
         );
         info!(log, "trying to download {url}");
 
-        download_large_file(url.as_str(), path).await?;
+        download_large_file(url.as_str(), path, log).await?;
         Ok(())
     }
 
@@ -1812,6 +1812,21 @@ pub(crate) fn new_progress_bar() -> ProgressBar {
 pub(crate) async fn download_large_file(
     url: &str,
     destination_path: &str,
+    log: &Logger,
+) -> anyhow::Result<()> {
+    for _ in 0..9 {
+        match download_large_file_impl(url, destination_path).await {
+            Ok(()) => return Ok(()),
+            Err(e) => warn!(log, "{e}: retrying in 1 second"),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    download_large_file_impl(url, destination_path).await
+}
+
+pub async fn download_large_file_impl(
+    url: &str,
+    destination_path: &str,
 ) -> anyhow::Result<()> {
     let tmp_destination_path = &format!("{destination_path}.tmp");
     let path = Path::new(destination_path);
@@ -1837,7 +1852,7 @@ pub(crate) async fn download_large_file(
 
     if !response.status().is_success() {
         Err(anyhow::anyhow!(
-            "failed to download image: {}",
+            "failed to download image: {}, ",
             response.status()
         ))?;
     }

@@ -33,7 +33,7 @@ async fn download_propolis(rev: &str, path: &str, log: &Logger) -> Result<()> {
     let url = format!(
         "https://buildomat.eng.oxide.computer/public/file/oxidecomputer/propolis/falcon/{rev}/propolis-server"
     );
-    crate::download_large_file(url.as_str(), path).await?;
+    crate::download_large_file(url.as_str(), path, log).await?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
