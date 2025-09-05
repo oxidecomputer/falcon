@@ -30,7 +30,7 @@ pub(crate) async fn ensure_ovmf_fd(
 
 async fn download_ovmf(path: &str, log: &Logger) -> Result<()> {
     info!(log, "downloading ovmf");
-    crate::download_large_file(OVMF_URL, path).await?;
+    crate::download_large_file(OVMF_URL, path, log).await?;
     Ok(())
 }
 
