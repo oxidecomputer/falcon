@@ -360,7 +360,7 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 [[package]]
 name = "crucible-client-types"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/crucible?rev=779775d5130ff7a4836f52f48b7e64d1479ee104#779775d5130ff7a4836f52f48b7e64d1479ee104"
+source = "git+https://github.com/oxidecomputer/crucible?rev=102b0bb8305cfbc3fa74c52d643d716653756372#102b0bb8305cfbc3fa74c52d643d716653756372"
 dependencies = [
  "base64 0.22.1",
  "crucible-workspace-hack",
@@ -1502,7 +1502,7 @@ dependencies = [
 [[package]]
 name = "propolis-client"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=8b121c89f055c68f3244b49df7342fa646ec5d5c#8b121c89f055c68f3244b49df7342fa646ec5d5c"
+source = "git+https://github.com/oxidecomputer/propolis?rev=6b161e88febee1a52ccb647411b022076a4ee645#6b161e88febee1a52ccb647411b022076a4ee645"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -1511,7 +1511,7 @@ dependencies = [
  "progenitor",
  "progenitor-client",
  "propolis_api_types",
- "rand 0.8.5",
+ "rand 0.9.2",
  "reqwest",
  "schemars",
  "serde",
@@ -1526,7 +1526,7 @@ dependencies = [
 [[package]]
 name = "propolis_api_types"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=8b121c89f055c68f3244b49df7342fa646ec5d5c#8b121c89f055c68f3244b49df7342fa646ec5d5c"
+source = "git+https://github.com/oxidecomputer/propolis?rev=6b161e88febee1a52ccb647411b022076a4ee645#6b161e88febee1a52ccb647411b022076a4ee645"
 dependencies = [
  "crucible-client-types",
  "propolis_types",
@@ -1539,7 +1539,7 @@ dependencies = [
 [[package]]
 name = "propolis_types"
 version = "0.0.0"
-source = "git+https://github.com/oxidecomputer/propolis?rev=8b121c89f055c68f3244b49df7342fa646ec5d5c#8b121c89f055c68f3244b49df7342fa646ec5d5c"
+source = "git+https://github.com/oxidecomputer/propolis?rev=6b161e88febee1a52ccb647411b022076a4ee645#6b161e88febee1a52ccb647411b022076a4ee645"
 dependencies = [
  "schemars",
  "serde",
