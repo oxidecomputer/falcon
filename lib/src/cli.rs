@@ -557,7 +557,11 @@ async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
 async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
     let mut stream = InstanceSerialConsoleHelper::new(
         addr,
-        WSClientOffset::MostRecent(16 * 1024),
+        // TODO: would be nice to request the last bit of history and maybe
+        // print the last line or so? Going too far back would get the
+        // `__FALCON_EXEC_FINISHED__` lines and prompt spew from Falcon setting
+        // up the VM though.
+        WSClientOffset::MostRecent(0),
         None,
     )
     .await
