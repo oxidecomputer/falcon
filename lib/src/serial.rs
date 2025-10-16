@@ -5,16 +5,14 @@
 // Copyright 2022 Oxide Computer Company
 
 use crate::error::Error;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
+use propolis_client::support::{InstanceSerialConsoleHelper, WSClientOffset};
 use regex::Regex;
 use slog::{debug, trace, warn, Logger};
 use std::net::SocketAddr;
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::{
-    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::tungstenite::Message;
 
 pub enum State {
     Empty,
@@ -60,15 +58,17 @@ impl SerialCommander {
 
     pub async fn connect(
         &mut self,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+    ) -> Result<InstanceSerialConsoleHelper, Error> {
         self.state = State::Connecting;
-        let path = format!("ws://{}/instance/serial", self.addr);
-
-        debug!(self.log, "[sc] {}: connecting to {}", self.name, path);
-
         for _ in 0..30 {
-            match connect_async(path.clone()).await {
-                Ok((ws, _)) => return Ok(ws),
+            match InstanceSerialConsoleHelper::new(
+                self.addr,
+                WSClientOffset::MostRecent(0),
+                Some(self.log.clone()),
+            )
+            .await
+            {
+                Ok(sc) => return Ok(sc),
                 Err(e) => {
                     warn!(self.log, "[sc] {}: {}", self.name, e);
                     sleep(Duration::from_secs(1)).await;
@@ -76,15 +76,23 @@ impl SerialCommander {
                 }
             }
         }
+
         // one more shot
-        let (ws, _) = connect_async(path).await?;
-        Ok(ws)
+        let sc = InstanceSerialConsoleHelper::new(
+            self.addr,
+            WSClientOffset::FromStart(0),
+            Some(self.log.clone()),
+        )
+        .await
+        .map_err(Error::InstanceSerialConnectError)?;
+
+        Ok(sc)
     }
 
     pub async fn start(
         &mut self,
         coax_prompt: bool,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+    ) -> Result<InstanceSerialConsoleHelper, Error> {
         debug!(self.log, "[sc] {}: starting", self.name);
 
         let mut ws = self.connect().await?;
@@ -96,7 +104,7 @@ impl SerialCommander {
 
     async fn wait_for_login_prompt(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         coax_prompt: bool,
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {} waiting for prompt", self.name);
@@ -113,7 +121,7 @@ impl SerialCommander {
 
     pub(crate) async fn login(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {}: logging in", self.name);
 
@@ -189,7 +197,7 @@ impl SerialCommander {
 
     pub(crate) async fn logout(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
     ) -> Result<(), Error> {
         let timeout = Some(5000);
         let mut v = Vec::from(b"logout".as_slice());
@@ -203,7 +211,7 @@ impl SerialCommander {
     // Execute a command with a specific timeout
     pub async fn exec_timeout(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         cmd: String,
         timeout_ms: Option<u64>,
     ) -> Result<String, Error> {
@@ -235,7 +243,7 @@ impl SerialCommander {
     // Execute a command with no timeout
     pub async fn exec(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         command: String,
     ) -> Result<String, Error> {
         self.exec_timeout(ws, command, None).await
@@ -246,7 +254,7 @@ impl SerialCommander {
     /// Return all read data up to the regex match or an error.
     pub async fn drain_match(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         wait_ms: Option<u64>,
         regex: Regex,
     ) -> Result<String, Error> {
@@ -257,42 +265,77 @@ impl SerialCommander {
 
         let mut result = "".to_string();
         loop {
-            match timeout(Duration::from_millis(wait_ms), ws.next()).await {
+            match timeout(Duration::from_millis(wait_ms), ws.recv()).await {
                 Ok(msg) => match msg {
-                    Some(Ok(Message::Binary(data))) => {
-                        let s = String::from_utf8_lossy(data.as_slice())
-                            .to_string();
-                        trace!(
-                            self.log,
-                            "[sc] {}: received data: {}",
-                            self.name,
-                            s
-                        );
-                        result += &s;
-                        if let Some(mat) = regex.find(&result) {
+                    Some(Ok(m)) => match m.process().await {
+                        Ok(Message::Binary(data)) => {
+                            let s = String::from_utf8_lossy(data.as_slice())
+                                .to_string();
                             trace!(
                                 self.log,
-                                "[sc] {}: drained: `{}`",
+                                "[sc] {}: received data: {}",
                                 self.name,
-                                &result
+                                s
                             );
-                            result.truncate(mat.start());
+                            result += &s;
+                            if let Some(mat) = regex.find(&result) {
+                                trace!(
+                                    self.log,
+                                    "[sc] {}: drained: `{}`",
+                                    self.name,
+                                    &result
+                                );
+                                result.truncate(mat.start());
+                                trace!(
+                                    self.log,
+                                    "[sc] {}: breaking on success",
+                                    self.name
+                                );
+                                break;
+                            }
+                        }
+                        Ok(Message::Close(..)) => {
                             trace!(
                                 self.log,
-                                "[sc] {}: breaking on success",
+                                "[sc] {}: breaking on close",
                                 self.name
                             );
-                            break;
+                            return Err(Error::Exec(format!(
+                                "[sc] {}: websocket closed",
+                                self.name
+                            )));
                         }
-                    }
-                    Some(Ok(Message::Close(..))) => {
+                        Err(e) => {
+                            trace!(
+                                self.log,
+                                "[sc] {}: breaking on wesocket error: {e}",
+                                self.name,
+                            );
+                            return Err(Error::Exec(format!(
+                                "[sc] {}: web socket error: {e}",
+                                self.name
+                            )));
+                        }
+                        _ => {
+                            trace!(
+                                self.log,
+                                "[sc] {}: breaking on _",
+                                self.name
+                            );
+                            return Err(Error::Exec(format!(
+                                "[sc] {}: Unexpected websocket message",
+                                self.name
+                            )));
+                        }
+                    },
+                    Some(Err(e)) => {
                         trace!(
-                            self.log,
-                            "[sc] {}: breaking on close",
-                            self.name
-                        );
+                                self.log,
+                                "[sc] {}: breaking on serial message process error: {e}",
+                                self.name,
+                            );
                         return Err(Error::Exec(format!(
-                            "[sc] {}: websocket closed",
+                            "[sc] {}: serial message process error: {e}",
                             self.name
                         )));
                     }
@@ -304,13 +347,6 @@ impl SerialCommander {
                         );
                         return Err(Error::Exec(format!(
                             "[sc] {}: stream returned no data",
-                            self.name
-                        )));
-                    }
-                    _ => {
-                        trace!(self.log, "[sc] {}: breaking on _", self.name);
-                        return Err(Error::Exec(format!(
-                            "[sc] {}: Unexpected websocket message",
                             self.name
                         )));
                     }

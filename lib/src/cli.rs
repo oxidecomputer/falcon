@@ -17,7 +17,8 @@ use anyhow::{anyhow, Context};
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::ArgAction;
 use colored::*;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
+use propolis_client::support::{InstanceSerialConsoleHelper, WSClientOffset};
 use propolis_client::{types::InstanceStateRequested, Client};
 use ron::de::from_str;
 use slog::{o, warn, Drain, Level, Logger};
@@ -551,10 +552,12 @@ async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
 
 // TODO copy pasta from propolis/cli/src/main.rs
 async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
-    let path = format!("ws://{}/instance/serial", addr);
-    let (mut ws, _) = tokio_tungstenite::connect_async(path)
-        .await
-        .with_context(|| anyhow!("failed to create serial websocket stream"))?;
+    let mut ws = InstanceSerialConsoleHelper::new(
+        addr,
+        WSClientOffset::MostRecent(0),
+        None,
+    )
+    .await?;
 
     let _raw_guard = RawTermiosGuard::stdio_guard()
         .with_context(|| anyhow!("failed to set raw mode"))?;
@@ -596,14 +599,25 @@ async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
                     },
                 }
             }
-            msg = ws.next() => {
+            msg = ws.recv() => {
                 match msg {
-                    Some(Ok(Message::Binary(input))) => {
-                        stdout.write_all(&input).await?;
-                        stdout.flush().await?;
+                    Some(Ok(msg)) => {
+                        match msg.process().await {
+                        Ok(Message::Binary(input)) => {
+                            stdout.write_all(&input).await?;
+                            stdout.flush().await?;
+                        }
+                        Ok(Message::Close(..)) => break,
+                        _ => continue,
+                        }
                     }
-                    Some(Ok(Message::Close(..))) | None => break,
-                    _ => continue,
+                    Some(Err(e)) => {
+                        eprintln!("console error: {e}");
+                        break;
+                    }
+                    None => {
+                        break;
+                    }
                 }
             }
         }

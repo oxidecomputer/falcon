@@ -47,4 +47,5 @@ pub enum Error {
     #[error("no ports available")]
     NoPorts,
     Zfs(String),
+    InstanceSerialConnectError(tokio_tungstenite::tungstenite::Error),
 }
