@@ -5,16 +5,15 @@
 // Copyright 2022 Oxide Computer Company
 
 use crate::error::Error;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use regex::Regex;
 use slog::{debug, trace, warn, Logger};
 use std::net::SocketAddr;
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::{
-    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{tungstenite::Error as WSError, tungstenite::Message};
+
+use propolis_client::support::{InstanceSerialConsoleHelper, WSClientOffset};
 
 pub enum State {
     Empty,
@@ -60,15 +59,31 @@ impl SerialCommander {
 
     pub async fn connect(
         &mut self,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
-        self.state = State::Connecting;
-        let path = format!("ws://{}/instance/serial", self.addr);
+    ) -> Result<InstanceSerialConsoleHelper, Error> {
+        async fn get_serial(
+            addr: &SocketAddr,
+            log: &Logger,
+        ) -> Result<InstanceSerialConsoleHelper, WSError> {
+            // `InstanceSerialConsoleHelper` is a bit more industrial-strength
+            // than strictly needed here - it exists in part to paper over
+            // migration of the instance whose serial it's connceted to! Using
+            // it here keeps us working in terms of `propolis_client` and
+            // the same primitives as Nexus.
+            InstanceSerialConsoleHelper::new(
+                *addr,
+                WSClientOffset::FromStart(0),
+                Some(log.clone()),
+            )
+            .await
+        }
 
-        debug!(self.log, "[sc] {}: connecting to {}", self.name, path);
+        self.state = State::Connecting;
+
+        debug!(self.log, "[sc] {}: connecting to {}", self.name, &self.addr);
 
         for _ in 0..30 {
-            match connect_async(path.clone()).await {
-                Ok((ws, _)) => return Ok(ws),
+            match get_serial(&self.addr, &self.log).await {
+                Ok(ws) => return Ok(ws),
                 Err(e) => {
                     warn!(self.log, "[sc] {}: {}", self.name, e);
                     sleep(Duration::from_secs(1)).await;
@@ -77,14 +92,14 @@ impl SerialCommander {
             }
         }
         // one more shot
-        let (ws, _) = connect_async(path).await?;
+        let ws = get_serial(&self.addr, &self.log).await?;
         Ok(ws)
     }
 
     pub async fn start(
         &mut self,
         coax_prompt: bool,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+    ) -> Result<InstanceSerialConsoleHelper, Error> {
         debug!(self.log, "[sc] {}: starting", self.name);
 
         let mut ws = self.connect().await?;
@@ -96,7 +111,7 @@ impl SerialCommander {
 
     async fn wait_for_login_prompt(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         coax_prompt: bool,
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {} waiting for prompt", self.name);
@@ -113,7 +128,7 @@ impl SerialCommander {
 
     pub(crate) async fn login(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
     ) -> Result<(), Error> {
         debug!(self.log, "[sc] {}: logging in", self.name);
 
@@ -189,7 +204,7 @@ impl SerialCommander {
 
     pub(crate) async fn logout(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
     ) -> Result<(), Error> {
         let timeout = Some(5000);
         let mut v = Vec::from(b"logout".as_slice());
@@ -203,7 +218,7 @@ impl SerialCommander {
     // Execute a command with a specific timeout
     pub async fn exec_timeout(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         cmd: String,
         timeout_ms: Option<u64>,
     ) -> Result<String, Error> {
@@ -235,7 +250,7 @@ impl SerialCommander {
     // Execute a command with no timeout
     pub async fn exec(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         command: String,
     ) -> Result<String, Error> {
         self.exec_timeout(ws, command, None).await
@@ -246,7 +261,7 @@ impl SerialCommander {
     /// Return all read data up to the regex match or an error.
     pub async fn drain_match(
         &mut self,
-        ws: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ws: &mut InstanceSerialConsoleHelper,
         wait_ms: Option<u64>,
         regex: Regex,
     ) -> Result<String, Error> {
@@ -257,44 +272,77 @@ impl SerialCommander {
 
         let mut result = "".to_string();
         loop {
-            match timeout(Duration::from_millis(wait_ms), ws.next()).await {
+            match timeout(Duration::from_millis(wait_ms), ws.recv()).await {
                 Ok(msg) => match msg {
-                    Some(Ok(Message::Binary(data))) => {
-                        let s = String::from_utf8_lossy(data.as_slice())
-                            .to_string();
-                        trace!(
-                            self.log,
-                            "[sc] {}: received data: {}",
-                            self.name,
-                            s
-                        );
-                        result += &s;
-                        if let Some(mat) = regex.find(&result) {
-                            trace!(
-                                self.log,
-                                "[sc] {}: drained: `{}`",
-                                self.name,
-                                &result
-                            );
-                            result.truncate(mat.start());
-                            trace!(
-                                self.log,
-                                "[sc] {}: breaking on success",
-                                self.name
-                            );
-                            break;
+                    Some(msg) => {
+                        // `process()` is an immediate Ok, but only if the
+                        // instance hasn't migrated (and we don't need to follow
+                        // it to its new address). If we do follow the
+                        // migration, we should do so under the timeout of
+                        // `wait_ms`. But `process()` is not cancel-safe, so
+                        // naively running it partially under a `timeout()`
+                        // could have bad consequences if we _did_ have
+                        // migrations happening in Falcon in the future.
+                        //
+                        // The plumbing to handle driving `process()` under a
+                        // timeout is a bit annoying, so await it here and
+                        // expect that it succeeds because we don't have to
+                        // sweat migrations here.
+                        let msg = msg?
+                            .process()
+                            .await
+                            .expect("falcon doesn't migrate instances");
+                        match msg {
+                            Message::Binary(data) => {
+                                let s =
+                                    String::from_utf8_lossy(data.as_slice())
+                                        .to_string();
+                                trace!(
+                                    self.log,
+                                    "[sc] {}: received data: {}",
+                                    self.name,
+                                    s
+                                );
+                                result += &s;
+                                if let Some(mat) = regex.find(&result) {
+                                    trace!(
+                                        self.log,
+                                        "[sc] {}: drained: `{}`",
+                                        self.name,
+                                        &result
+                                    );
+                                    result.truncate(mat.start());
+                                    trace!(
+                                        self.log,
+                                        "[sc] {}: breaking on success",
+                                        self.name
+                                    );
+                                    break;
+                                }
+                            }
+                            Message::Close(..) => {
+                                trace!(
+                                    self.log,
+                                    "[sc] {}: breaking on close",
+                                    self.name
+                                );
+                                return Err(Error::Exec(format!(
+                                    "[sc] {}: websocket closed",
+                                    self.name
+                                )));
+                            }
+                            _ => {
+                                trace!(
+                                    self.log,
+                                    "[sc] {}: breaking on _",
+                                    self.name
+                                );
+                                return Err(Error::Exec(format!(
+                                    "[sc] {}: Unexpected websocket message",
+                                    self.name
+                                )));
+                            }
                         }
-                    }
-                    Some(Ok(Message::Close(..))) => {
-                        trace!(
-                            self.log,
-                            "[sc] {}: breaking on close",
-                            self.name
-                        );
-                        return Err(Error::Exec(format!(
-                            "[sc] {}: websocket closed",
-                            self.name
-                        )));
                     }
                     None => {
                         trace!(
@@ -304,13 +352,6 @@ impl SerialCommander {
                         );
                         return Err(Error::Exec(format!(
                             "[sc] {}: stream returned no data",
-                            self.name
-                        )));
-                    }
-                    _ => {
-                        trace!(self.log, "[sc] {}: breaking on _", self.name);
-                        return Err(Error::Exec(format!(
-                            "[sc] {}: Unexpected websocket message",
                             self.name
                         )));
                     }
