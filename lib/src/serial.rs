@@ -71,7 +71,7 @@ impl SerialCommander {
             // the same primitives as Nexus.
             InstanceSerialConsoleHelper::new(
                 *addr,
-                WSClientOffset::FromStart(0),
+                WSClientOffset::MostRecent(0),
                 Some(log.clone()),
             )
             .await
