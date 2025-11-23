@@ -185,6 +185,11 @@ pub struct Node {
     pub vnc_port: Option<u16>,
     /// Propolis components for instance spec
     pub components: BTreeMap<SpecKey, ComponentV0>,
+
+    /// The synthetic model number of the VM - used for smbios
+    pub model: Option<String>,
+    /// The synthetic serial number of the VM - used for smbios
+    pub serial_number: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -372,6 +377,8 @@ impl Runner {
             primary_disk_backing: PrimaryDiskBacking::Zvol,
             vnc_port: None,
             components: BTreeMap::new(),
+            model: None,
+            serial_number: None,
         };
         self.deployment.nodes.push(n);
         r
@@ -496,6 +503,16 @@ impl Runner {
 
     pub fn set_backing(&mut self, n: NodeRef, backing: PrimaryDiskBacking) {
         self.deployment.nodes[n.index].primary_disk_backing = backing
+    }
+
+    pub fn set_model_and_serial_number(
+        &mut self,
+        n: NodeRef,
+        model: String,
+        serial_number: String,
+    ) {
+        self.deployment.nodes[n.index].model = Some(model);
+        self.deployment.nodes[n.index].serial_number = Some(serial_number);
     }
 
     /// Create an external link attached to `host_ifx`.
@@ -1664,8 +1681,14 @@ pub(crate) async fn launch_vm(
             project_id: uuid::Uuid::nil(),
             silo_id: uuid::Uuid::nil(),
             sled_id: uuid::Uuid::nil(),
-            sled_model: "falcon".to_owned(),
-            sled_serial: "falcon".to_owned(),
+            sled_model: node
+                .model
+                .clone()
+                .unwrap_or_else(|| "falcon".to_owned()),
+            sled_serial: node
+                .serial_number
+                .clone()
+                .unwrap_or_else(|| "falcon".to_owned()),
             sled_revision: 0,
         },
     };
