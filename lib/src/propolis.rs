@@ -22,6 +22,7 @@ pub(crate) async fn ensure_propolis_binary(
         );
         return download_propolis(rev, &path, log).await;
     }
+
     Ok(())
 }
 

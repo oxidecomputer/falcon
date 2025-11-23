@@ -377,6 +377,8 @@ impl Runner {
             primary_disk_backing: PrimaryDiskBacking::Zvol,
             vnc_port: None,
             components: BTreeMap::new(),
+            model: None,
+            serial_number: None,
         };
         self.deployment.nodes.push(n);
         r
