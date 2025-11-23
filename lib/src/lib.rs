@@ -505,6 +505,16 @@ impl Runner {
         self.deployment.nodes[n.index].primary_disk_backing = backing
     }
 
+    pub fn set_model_and_serial_number(
+        &mut self,
+        n: NodeRef,
+        model: String,
+        serial_number: String,
+    ) {
+        self.deployment.nodes[n.index].model = Some(model);
+        self.deployment.nodes[n.index].serial_number = Some(serial_number);
+    }
+
     /// Create an external link attached to `host_ifx`.
     pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
         let endpoint = Endpoint {
