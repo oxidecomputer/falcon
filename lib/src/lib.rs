@@ -185,6 +185,11 @@ pub struct Node {
     pub vnc_port: Option<u16>,
     /// Propolis components for instance spec
     pub components: BTreeMap<SpecKey, ComponentV0>,
+
+    /// The synthetic model number of the VM - used for smbios
+    pub model: Option<String>,
+    /// The synthetic serial number of the VM - used for smbios
+    pub serial_number: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1664,8 +1669,11 @@ pub(crate) async fn launch_vm(
             project_id: uuid::Uuid::nil(),
             silo_id: uuid::Uuid::nil(),
             sled_id: uuid::Uuid::nil(),
-            sled_model: "falcon".to_owned(),
-            sled_serial: "falcon".to_owned(),
+            sled_model: node.model.clone().unwrap_or("falcon".to_owned()),
+            sled_serial: node
+                .serial_number
+                .clone()
+                .unwrap_or("falcon".to_owned()),
             sled_revision: 0,
         },
     };
