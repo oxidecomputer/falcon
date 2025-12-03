@@ -23,11 +23,12 @@ use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use ovmf::ensure_ovmf_fd;
 use propolis::ensure_propolis_binary;
+pub use propolis_client::instance_spec::SmbiosType1Input;
 use propolis_client::instance_spec::{
     Board, Chipset, ComponentV0, DlpiNetworkBackend, FileStorageBackend,
-    I440Fx, InstanceSpecV0, P9fs, PciPath, SerialPort, SerialPortNumber,
-    SoftNpuP9, SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk,
-    VirtioNetworkBackend, VirtioNic,
+    I440Fx, InstanceMetadata, InstanceSpec, P9fs, PciPath, SerialPort,
+    SerialPortNumber, SoftNpuP9, SoftNpuPciPort, SoftNpuPort, SpecKey,
+    VirtioDisk, VirtioNetworkBackend, VirtioNic,
 };
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
@@ -49,8 +50,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 use xz2::read::XzDecoder;
-
-use propolis_client::types::InstanceMetadata;
 
 // See build.rs for how this file is generated
 include!(concat!(env!("OUT_DIR"), "/propolis_version.rs"));
@@ -185,6 +184,8 @@ pub struct Node {
     pub vnc_port: Option<u16>,
     /// Propolis components for instance spec
     pub components: BTreeMap<SpecKey, ComponentV0>,
+    /// SMBIOS Type 1 table information that gets injected into the guest
+    pub smbios: Option<SmbiosType1Input>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -372,6 +373,7 @@ impl Runner {
             primary_disk_backing: PrimaryDiskBacking::Zvol,
             vnc_port: None,
             components: BTreeMap::new(),
+            smbios: None,
         };
         self.deployment.nodes.push(n);
         r
@@ -495,7 +497,11 @@ impl Runner {
     }
 
     pub fn set_backing(&mut self, n: NodeRef, backing: PrimaryDiskBacking) {
-        self.deployment.nodes[n.index].primary_disk_backing = backing
+        self.deployment.nodes[n.index].primary_disk_backing = backing;
+    }
+
+    pub fn set_smbios_type1(&mut self, n: NodeRef, smbios: SmbiosType1Input) {
+        self.deployment.nodes[n.index].smbios = Some(smbios);
     }
 
     /// Create an external link attached to `host_ifx`.
@@ -1656,7 +1662,7 @@ pub(crate) async fn launch_vm(
     fs::write(&path, id.to_string())?;
     path.pop();
 
-    let properties = propolis_client::types::InstanceProperties {
+    let properties = propolis_client::instance_spec::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1671,7 +1677,7 @@ pub(crate) async fn launch_vm(
     };
 
     //let spec = propolis_client::types::InstanceSpecV0 {
-    let spec = InstanceSpecV0 {
+    let spec = InstanceSpec {
         board: Board {
             cpus: node.cores,
             memory_mb: node.memory,
@@ -1688,6 +1694,7 @@ pub(crate) async fn launch_vm(
         } else {
             Default::default()
         },
+        smbios: node.smbios.clone(),
     };
     let req = propolis_client::types::InstanceEnsureRequest {
         properties,
