@@ -1052,6 +1052,7 @@ dependencies = [
  "indicatif",
  "libc",
  "libnet",
+ "oxnet",
  "prettyplease",
  "propolis-client",
  "quote",

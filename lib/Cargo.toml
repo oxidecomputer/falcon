@@ -34,6 +34,7 @@ xz2.workspace = true
 anstyle.workspace = true
 sha2.workspace = true
 base16ct.workspace = true
+oxnet.workspace = true
 
 [dev-dependencies]
 camino-tempfile.workspace = true
