@@ -528,7 +528,7 @@ impl Runner {
             None,
         )?;
         let ifx = rt.ifx.ok_or(Error::NoInterfaceForDefaultRoute)?;
-        info!(self.log, "using default route interface {ifx}");
+        debug!(self.log, "using default route interface {ifx}");
         self.ext_link(&ifx, n);
         Ok(())
     }
