@@ -22,6 +22,7 @@ use futures::future::join_all;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use ovmf::ensure_ovmf_fd;
+use oxnet::{IpNet, Ipv4Net};
 use propolis::ensure_propolis_binary;
 pub use propolis_client::instance_spec::SmbiosType1Input;
 use propolis_client::instance_spec::{
@@ -39,7 +40,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
 use std::io::BufWriter;
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
@@ -516,6 +517,20 @@ impl Runner {
             .ext_links
             .push(ExtLink { endpoint, host_ifx });
         self.deployment.nodes[n.index].radix += 1;
+    }
+
+    /// Search the host system for a default route. If a default route is found
+    /// add the datalink underpinning the nexthop interface as an external link
+    /// for the specified node.
+    pub fn default_ext_link(&mut self, n: NodeRef) -> Result<(), Error> {
+        let rt = libnet::get_route(
+            IpNet::V4(Ipv4Net::new_unchecked(Ipv4Addr::new(0, 0, 0, 0), 0)),
+            None,
+        )?;
+        let ifx = rt.ifx.ok_or(Error::NoInterfaceForDefaultRoute)?;
+        debug!(self.log, "using default route interface {ifx}");
+        self.ext_link(&ifx, n);
+        Ok(())
     }
 
     /// Provide the host folder `src` as a p9fs mount to the guest with the tag
