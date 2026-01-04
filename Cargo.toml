@@ -50,5 +50,5 @@ quote = "1.0.42"
 prettyplease = "0.2"
 syn = "2.0"
 sha2 = "0.10.9"
-anstyle = "1.0.11"
+anstyle = "1.0.13"
 base16ct = { version = "1.0.0", features = ["alloc"] }
