@@ -7,7 +7,7 @@
 use crate::error::Error;
 use futures::SinkExt;
 use regex::Regex;
-use slog::{debug, trace, warn, Logger};
+use slog::{debug, info, trace, warn, Logger};
 use std::net::SocketAddr;
 use tokio::time::timeout;
 use tokio::time::{sleep, Duration};
@@ -121,7 +121,7 @@ impl SerialCommander {
             let v = vec![ENTER, ENTER];
             ws.send(Message::binary(v)).await?;
         }
-        self.drain_match(ws, timeout, self.login_prompt_regex.clone())
+        self.drain_match(ws, timeout, self.login_prompt_regex.clone(), false)
             .await?;
         Ok(())
     }
@@ -150,6 +150,7 @@ impl SerialCommander {
             ws,
             timeout,
             Regex::new(r"Password:|root@.+#").unwrap(),
+            false,
         )
         .await?;
 
@@ -161,7 +162,7 @@ impl SerialCommander {
         );
         let v = vec![ENTER];
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, Regex::new(r"root@.+#").unwrap())
+        self.drain_match(ws, timeout, Regex::new(r"root@.+#").unwrap(), false)
             .await?;
 
         // Set the terminal type.  This is non-interactive; we don't
@@ -172,7 +173,7 @@ impl SerialCommander {
         v.push(ENTER);
         ws.send(Message::binary(v.clone())).await?;
         let regex = Regex::new(&format!("{cmd}.*\\n")).unwrap();
-        self.drain_match(ws, timeout, regex).await?;
+        self.drain_match(ws, timeout, regex, false).await?;
 
         // Put the terminal into raw mode.
         trace!(self.log, "[sc] {}: Setting raw terminal mode", self.name);
@@ -181,7 +182,7 @@ impl SerialCommander {
         v.push(ENTER);
         ws.send(Message::binary(v.clone())).await?;
         let regex = Regex::new(&format!("{cmd}.*\\n")).unwrap();
-        self.drain_match(ws, timeout, regex).await?;
+        self.drain_match(ws, timeout, regex, false).await?;
 
         // Set the prompt command to allow us to detect the end of each command
         trace!(self.log, "[sc] {}: Setting PROMPT_COMMAND", self.name);
@@ -197,7 +198,7 @@ impl SerialCommander {
         // case, because in some cases (like our debian 11 image), we get output
         // prepended to the PROMPT_COMMAND.
         let regex = Regex::new(&format!("(?mR)^{EOC_DETECTOR}")).unwrap();
-        self.drain_match(ws, timeout, regex).await?;
+        self.drain_match(ws, timeout, regex, false).await?;
 
         Ok(())
     }
@@ -210,7 +211,7 @@ impl SerialCommander {
         let mut v = Vec::from(b"logout".as_slice());
         v.push(ENTER);
         ws.send(Message::binary(v)).await?;
-        self.drain_match(ws, timeout, self.login_prompt_regex.clone())
+        self.drain_match(ws, timeout, self.login_prompt_regex.clone(), false)
             .await?;
         Ok(())
     }
@@ -221,15 +222,20 @@ impl SerialCommander {
         ws: &mut InstanceSerialConsoleHelper,
         cmd: String,
         timeout_ms: Option<u64>,
+        dump: bool,
     ) -> Result<String, Error> {
-        debug!(self.log, "[sc] {}: executing command `{}`", self.name, cmd);
+        if dump {
+            info!(self.log, "[sc] {}: executing command `{}`", self.name, cmd);
+        } else {
+            debug!(self.log, "[sc] {}: executing command `{}`", self.name, cmd);
+        }
 
         let mut v = Vec::from(cmd.as_bytes());
         v.push(ENTER);
         ws.send(Message::binary(v)).await?;
 
         let out = self
-            .drain_match(ws, timeout_ms, self.eoc_regex.clone())
+            .drain_match(ws, timeout_ms, self.eoc_regex.clone(), dump)
             .await?;
 
         // Iterate over all returned lines, stripping the first.
@@ -244,6 +250,11 @@ impl SerialCommander {
         // Remove the last `\n`
         stripped.pop();
 
+        if dump {
+            // feed to next line if we were dumping
+            println!();
+        }
+
         Ok(stripped)
     }
 
@@ -252,8 +263,9 @@ impl SerialCommander {
         &mut self,
         ws: &mut InstanceSerialConsoleHelper,
         command: String,
+        dump: bool,
     ) -> Result<String, Error> {
-        self.exec_timeout(ws, command, None).await
+        self.exec_timeout(ws, command, None, dump).await
     }
 
     /// Drain from the websocket until we match the provided regex or timeout.
@@ -264,6 +276,7 @@ impl SerialCommander {
         ws: &mut InstanceSerialConsoleHelper,
         wait_ms: Option<u64>,
         regex: Regex,
+        dump: bool,
     ) -> Result<String, Error> {
         trace!(self.log, "[sc] {}: drain by matching regex", self.name);
 
@@ -303,6 +316,10 @@ impl SerialCommander {
                                     self.name,
                                     s
                                 );
+                                if dump {
+                                    use colored::Colorize;
+                                    print!("{}", s.dimmed());
+                                }
                                 result += &s;
                                 if let Some(mat) = regex.find(&result) {
                                     trace!(

@@ -197,6 +197,10 @@ struct CmdExec {
     node: String,
     command: String,
 
+    /// Dump the output of the command in the log
+    #[clap(long)]
+    dump: bool,
+
     /// The path of the falcon output directory
     #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
     falcon_dir: Utf8PathBuf,
@@ -381,7 +385,7 @@ where
         }
         SubCommand::Exec(ref c) => {
             r.set_falcon_dir(Some(c.falcon_dir.clone().into()));
-            exec(r, &c.node, &c.command).await?;
+            exec(r, &c.node, &c.command, c.dump).await?;
             Ok(RunMode::Unspec)
         }
         SubCommand::Extra(c) => {
@@ -535,7 +539,7 @@ fn destroy(r: &Runner) {
     }
 }
 
-async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
+pub async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
     println!(
         "{}\n{}\n{}",
         "Entering VM console.".blue(),
@@ -834,8 +838,13 @@ async fn hyperstart(
     Ok(())
 }
 
-async fn exec(r: &Runner, node: &str, command: &str) -> Result<(), Error> {
-    println!("{}", r.do_exec(node, command).await?);
+async fn exec(
+    r: &Runner,
+    node: &str,
+    command: &str,
+    dump: bool,
+) -> Result<(), Error> {
+    println!("{}", r.do_exec(node, command, dump).await?);
     Ok(())
 }
 

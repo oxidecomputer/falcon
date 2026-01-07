@@ -766,10 +766,23 @@ impl Runner {
     /// Run a command synchronously in the vm.
     pub async fn exec(&self, n: NodeRef, cmd: &str) -> Result<String, Error> {
         let name = self.deployment.nodes[n.index].name.clone();
-        self.do_exec(&name, cmd).await
+        self.do_exec(&name, cmd, false).await
+    }
+    pub async fn exec_dump(
+        &self,
+        n: NodeRef,
+        cmd: &str,
+    ) -> Result<String, Error> {
+        let name = self.deployment.nodes[n.index].name.clone();
+        self.do_exec(&name, cmd, true).await
     }
 
-    async fn do_exec(&self, name: &str, cmd: &str) -> Result<String, Error> {
+    async fn do_exec(
+        &self,
+        name: &str,
+        cmd: &str,
+        dump: bool,
+    ) -> Result<String, Error> {
         let mut path: Utf8PathBuf = self.falcon_dir.clone().into();
         path.push(format!("{name}.uuid"));
         let id = match fs::read_to_string(&path) {
@@ -807,7 +820,7 @@ impl Runner {
             self.log.clone(),
         );
         let mut ws = sc.start(true).await?;
-        let out = sc.exec(&mut ws, cmd.to_string()).await?;
+        let out = sc.exec(&mut ws, cmd.to_string(), dump).await?;
         sc.logout(&mut ws).await?;
         Ok(out)
     }
@@ -1377,8 +1390,8 @@ impl Node {
                     dst = mount.destination
                 )
             };
-            sc.exec(&mut ws, cmd).await?;
-            sc.exec(&mut ws, "cd".into()).await?;
+            sc.exec(&mut ws, cmd, false).await?;
+            sc.exec(&mut ws, "cd".into(), false).await?;
             info!(
                 r.log,
                 "{}: finished mounting {}", self.name, mount.destination
@@ -1387,19 +1400,19 @@ impl Node {
 
         // set hostname
         let cmd = format!("hostname {}", self.name);
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
         let cmd = format!("echo '{name}' > /etc/nodename", name = self.name,);
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
         let cmd = format!(
             "echo '::1 {name}.local {name}' >> /etc/hosts",
             name = self.name,
         );
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
         let cmd = format!(
             "echo '127.0.0.1 {name}.local {name}' >> /etc/hosts",
             name = self.name,
         );
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
 
         // log out after finishing setup
         info!(r.log, "{}: logging out", self.name);
