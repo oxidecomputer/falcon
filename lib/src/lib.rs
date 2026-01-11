@@ -26,10 +26,11 @@ use oxnet::{IpNet, Ipv4Net};
 use propolis::ensure_propolis_binary;
 pub use propolis_client::instance_spec::SmbiosType1Input;
 use propolis_client::instance_spec::{
-    Board, Chipset, ComponentV0, DlpiNetworkBackend, FileStorageBackend,
-    I440Fx, InstanceMetadata, InstanceSpec, P9fs, PciPath, SerialPort,
-    SerialPortNumber, SoftNpuP9, SoftNpuPciPort, SoftNpuPort, SpecKey,
-    VirtioDisk, VirtioNetworkBackend, VirtioNic,
+    Board, BootOrderEntry, BootSettings, Chipset, ComponentV0,
+    DlpiNetworkBackend, FileStorageBackend, I440Fx, InstanceMetadata,
+    InstanceSpec, P9fs, PciPath, SerialPort, SerialPortNumber, SoftNpuP9,
+    SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk, VirtioNetworkBackend,
+    VirtioNic,
 };
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
@@ -187,6 +188,8 @@ pub struct Node {
     pub components: BTreeMap<SpecKey, ComponentV0>,
     /// SMBIOS Type 1 table information that gets injected into the guest
     pub smbios: Option<SmbiosType1Input>,
+    /// Optional boot iso image
+    pub bootiso: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -375,6 +378,7 @@ impl Runner {
             vnc_port: None,
             components: BTreeMap::new(),
             smbios: None,
+            bootiso: None,
         };
         self.deployment.nodes.push(n);
         r
@@ -396,6 +400,14 @@ impl Runner {
 
     pub fn get_node(&self, r: NodeRef) -> &Node {
         &self.deployment.nodes[r.index]
+    }
+
+    pub fn set_vnc_port(&mut self, r: NodeRef, port: Option<u16>) {
+        self.deployment.nodes[r.index].vnc_port = port;
+    }
+
+    pub fn set_bootiso(&mut self, r: NodeRef, path: Option<&str>) {
+        self.deployment.nodes[r.index].bootiso = path.map(|x| x.into());
     }
 
     pub fn do_setup(&mut self, r: NodeRef, value: bool) {
@@ -969,9 +981,41 @@ impl Node {
                 self.create_file_backing(log, deployment_name)?
             }
         };
-        self.create_blockdev(backing);
+        let main_disk_key = self.create_blockdev(backing);
 
         let mut pci_index = 5;
+
+        if let Some(bootiso) = &self.bootiso {
+            let iso_key = SpecKey::Name("boot_iso".to_string());
+            self.components.insert(
+                iso_key.clone(),
+                ComponentV0::VirtioDisk(VirtioDisk {
+                    backend_id: SpecKey::Name("boot_iso_backing".into()),
+                    pci_path: PciPath::new(0, pci_index, 0).unwrap(),
+                }),
+            );
+
+            self.components.insert(
+                SpecKey::Name("boot_iso_backing".to_string()),
+                ComponentV0::FileStorageBackend(FileStorageBackend {
+                    path: bootiso.to_string(),
+                    readonly: true,
+                    block_size: 2048,
+                    workers: None,
+                }),
+            );
+
+            self.components.insert(
+                SpecKey::Name("boot_iso_first".to_string()),
+                ComponentV0::BootSettings(BootSettings {
+                    order: vec![
+                        BootOrderEntry { id: iso_key },
+                        BootOrderEntry { id: main_disk_key },
+                    ],
+                }),
+            );
+            pci_index += 1;
+        }
 
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
@@ -1323,9 +1367,10 @@ impl Node {
         Ok(backing)
     }
 
-    fn create_blockdev(&mut self, backing: String) {
+    fn create_blockdev(&mut self, backing: String) -> SpecKey {
+        let key = SpecKey::Name("main_disk".to_string());
         self.components.insert(
-            SpecKey::Name("main_disk".to_string()),
+            key.clone(),
             ComponentV0::VirtioDisk(VirtioDisk {
                 backend_id: SpecKey::Name("main_disk_backing".into()),
                 pci_path: PciPath::new(0, 4, 0).unwrap(),
@@ -1341,6 +1386,7 @@ impl Node {
                 workers: None,
             }),
         );
+        key
     }
 
     async fn launch(&self, r: &Runner) -> Result<(), Error> {
