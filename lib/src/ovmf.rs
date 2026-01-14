@@ -1,8 +1,9 @@
 use anyhow::Result;
 use sha2::{Digest, Sha256};
-use slog::{info, Logger};
+use slog::{info, warn, Logger};
 use std::fs;
 use std::io;
+use std::time::Duration;
 
 const OVMF_URL: &str =
     "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/OVMF_CODE.fd";
@@ -18,7 +19,7 @@ pub(crate) async fn ensure_ovmf_fd(
         info!(log, "ovmf fd not found");
         return download_ovmf(&path, log).await;
     };
-    let remote_digest = get_expected_ovmf_digest().await?;
+    let remote_digest = get_expected_ovmf_digest(log).await?;
     if local_digest != remote_digest {
         info!(log,
             "ovmf digest '{local_digest}' does not match expected '{remote_digest}'"
@@ -46,8 +47,23 @@ fn get_downloaded_ovmf_digest(path: &str) -> Result<Option<String>> {
     Ok(Some(hash))
 }
 
-async fn get_expected_ovmf_digest() -> Result<String> {
-    let response = reqwest::get(OVMF_DIGEST_URL).await?;
+async fn get_expected_ovmf_digest(log: &Logger) -> Result<String> {
+    for _ in 0..9 {
+        match get_expected_ovmf_digest_impl().await {
+            Ok(digest) => return Ok(digest),
+            Err(e) => warn!(log, "{e}: retrying in 1 second"),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    get_expected_ovmf_digest_impl().await
+}
+
+async fn get_expected_ovmf_digest_impl() -> Result<String> {
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let response = client.get(OVMF_DIGEST_URL).send().await?;
     let text = response.text().await?;
     Ok(text.trim().to_owned())
 }
