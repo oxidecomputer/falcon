@@ -1778,27 +1778,41 @@ pub(crate) async fn launch_vm(
     };
 
     // we just launched the instance, so wait for it to become ready
+    info!(log, "{}: instance ensure", node.name);
     let mut success = false;
-    for _ in 0..30 {
-        info!(log, "{}: instance ensure", node.name);
+    let mut retry_count = 0;
+    let mut errors = HashMap::new();
+    while retry_count < 30 {
         match client.instance_ensure().body(&req).send().await {
             Ok(_) => {
                 success = true;
                 break;
             }
             Err(e) => {
-                warn!(
-                    log,
-                    "{}: instance ensure error: {e}, retry in 1 second",
-                    node.name
-                );
+                errors
+                    .entry(e.to_string())
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                retry_count += 1;
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
         }
     }
     if !success {
+        error!(
+            log,
+            "{}: instance ensure failed after {retry_count} retries", node.name
+        );
+        error!(log, "{}: instance ensure errors: {errors:#?}", node.name);
         client.instance_ensure().body(&req).send().await?;
+    }
+    info!(
+        log,
+        "{}: instance ensure completed after {retry_count} retries", node.name
+    );
+    if !errors.is_empty() {
+        warn!(log, "{}: instance ensure errors: {errors:#?}", node.name);
     }
 
     info!(log, "{}: instance run", node.name);
