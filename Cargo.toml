@@ -38,7 +38,7 @@ futures = "0.3"
 clap = { version = "4.5.54", features = ["color", "derive"] }
 tabwriter = { version = "1", features = ["ansi_formatting"] }
 colored = "3"
-rand = "0.8"
+rand = "0.9"
 camino = { version = "1.2.2", features = ["serde1"] }
 reqwest = { version = "0.12.26", default-features = false }
 oxnet = { version = "0.1.4", default-features = false }
