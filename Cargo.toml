@@ -4,11 +4,13 @@ resolver = "2"
 default-members = [
     "lib",
     "ztest",
+    "falco",
 ]
 
 members = [
     "lib",
     "ztest",
+    "falco",
     "examples/solo",
     "examples/duo",
     "examples/duo-unit",
