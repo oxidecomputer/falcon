@@ -1815,7 +1815,19 @@ pub(crate) async fn launch_vm(
 pub(crate) fn dataset() -> String {
     match std::env::var("FALCON_DATASET") {
         Ok(s) if !s.is_empty() => s,
-        _ => "rpool/falcon".to_string(),
+        _ => {
+            // Check if fpool/falcon exists
+            if std::process::Command::new("zfs")
+                .args(["list", "fpool/falcon"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                "fpool/falcon".to_string()
+            } else {
+                "rpool/falcon".to_string()
+            }
+        }
     }
 }
 
