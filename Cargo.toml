@@ -22,7 +22,7 @@ zone = "0.3.1"
 regex = "1.12"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
-uuid = { version = "1.21.0", features = [ "serde", "v4" ] }
+uuid = { version = "1.22.0", features = [ "serde", "v4" ] }
 serde = "1.0"
 ron = "0.12"
 slog = { version = "2.8", features = ["max_level_trace"] }
