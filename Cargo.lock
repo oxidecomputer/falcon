@@ -1099,7 +1099,7 @@ dependencies = [
  "prettyplease",
  "propolis-client",
  "quote",
- "rand 0.8.5",
+ "rand 0.10.0",
  "regex",
  "reqwest",
  "ron",
