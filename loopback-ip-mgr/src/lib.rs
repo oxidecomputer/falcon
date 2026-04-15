@@ -8,7 +8,7 @@
 //! loopback interface with cross-process reference counting, ensuring proper
 //! cleanup even if tests panic.
 
-use slog::{Logger, error, info};
+use slog::{error, info, Logger};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::IpAddr;
@@ -285,9 +285,7 @@ impl LoopbackIpManager {
                             ip.address,
                         );
                         drop(lockfile);
-                        if let Err(e) =
-                            std::fs::remove_file(&lockfile_path)
-                        {
+                        if let Err(e) = std::fs::remove_file(&lockfile_path) {
                             error!(
                                 self.log,
                                 "failed to remove lockfile {}: {e}",
@@ -310,11 +308,7 @@ impl LoopbackIpManager {
         }
     }
 
-    fn remove_ip_from_system_static(
-        ifname: &str,
-        log: &Logger,
-        addr: IpAddr,
-    ) {
+    fn remove_ip_from_system_static(ifname: &str, log: &Logger, addr: IpAddr) {
         #[cfg(target_os = "illumos")]
         let output = {
             let v = match addr {
@@ -370,10 +364,7 @@ impl LoopbackIpManager {
                 info!(log, "removed {addr} from system");
             }
             Err(e) => {
-                error!(
-                    log,
-                    "failed to execute remove command for {addr}: {e}"
-                );
+                error!(log, "failed to execute remove command for {addr}: {e}");
             }
         }
     }
@@ -448,7 +439,9 @@ mod tests {
     #[test]
     fn not_always_present_other_ipv4() {
         assert!(!is_always_present(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2))));
-        assert!(!is_always_present(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert!(!is_always_present(IpAddr::V4(Ipv4Addr::new(
+            192, 168, 1, 1
+        ))));
     }
 
     #[test]
@@ -517,7 +510,8 @@ mod tests {
 
     #[test]
     fn allocate_loopback_v4() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let alloc = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr])
             .expect("allocate loopback v4");
@@ -529,7 +523,8 @@ mod tests {
 
     #[test]
     fn allocate_loopback_v6() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addr = IpAddr::V6(Ipv6Addr::LOCALHOST);
         let alloc = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr])
             .expect("allocate loopback v6");
@@ -541,63 +536,101 @@ mod tests {
 
     #[test]
     fn drop_allocation_resets_use_count() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
         {
             let _alloc =
                 LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
             assert_eq!(
-                mgr.lock().unwrap().ips.iter().find(|ip| ip.address == addr).unwrap().use_count,
+                mgr.lock()
+                    .unwrap()
+                    .ips
+                    .iter()
+                    .find(|ip| ip.address == addr)
+                    .unwrap()
+                    .use_count,
                 1
             );
         }
         // After drop, use_count should be back to 0.
         assert_eq!(
-            mgr.lock().unwrap().ips.iter().find(|ip| ip.address == addr).unwrap().use_count,
+            mgr.lock()
+                .unwrap()
+                .ips
+                .iter()
+                .find(|ip| ip.address == addr)
+                .unwrap()
+                .use_count,
             0
         );
     }
 
     #[test]
     fn double_allocate_increments_use_count() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        let _a1 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
-        let _a2 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let _a1 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let _a2 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
         assert_eq!(
-            mgr.lock().unwrap().ips.iter().find(|ip| ip.address == addr).unwrap().use_count,
+            mgr.lock()
+                .unwrap()
+                .ips
+                .iter()
+                .find(|ip| ip.address == addr)
+                .unwrap()
+                .use_count,
             2
         );
     }
 
     #[test]
     fn use_count_decrements_on_partial_drop() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        let _a1 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let _a1 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
         {
             let _a2 =
                 LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
             assert_eq!(
-                mgr.lock().unwrap().ips.iter().find(|ip| ip.address == addr).unwrap().use_count,
+                mgr.lock()
+                    .unwrap()
+                    .ips
+                    .iter()
+                    .find(|ip| ip.address == addr)
+                    .unwrap()
+                    .use_count,
                 2
             );
         }
         // a2 dropped: back to 1.
         assert_eq!(
-            mgr.lock().unwrap().ips.iter().find(|ip| ip.address == addr).unwrap().use_count,
+            mgr.lock()
+                .unwrap()
+                .ips
+                .iter()
+                .find(|ip| ip.address == addr)
+                .unwrap()
+                .use_count,
             1
         );
     }
 
     #[test]
     fn allocate_multiple_addresses() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addrs = vec![
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             IpAddr::V6(Ipv6Addr::LOCALHOST),
         ];
-        let alloc = LoopbackIpManager::allocate(Arc::clone(&mgr), &addrs).unwrap();
+        let alloc =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &addrs).unwrap();
         assert_eq!(alloc.addresses.len(), 2);
         let inner = mgr.lock().unwrap();
         for addr in &addrs {
@@ -608,10 +641,13 @@ mod tests {
 
     #[test]
     fn add_does_not_duplicate_entries() {
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        let _a1 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
-        let _a2 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let _a1 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let _a2 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
         let inner = mgr.lock().unwrap();
         assert_eq!(inner.ips.iter().filter(|ip| ip.address == addr).count(), 1);
     }
@@ -639,15 +675,22 @@ mod tests {
     #[cfg(target_os = "illumos")]
     fn install_and_uninstall_ipv4() {
         let addr: IpAddr = "127.42.1.1".parse().unwrap();
-        assert!(!is_addr_installed(addr), "127.42.1.1 already present; clean it up first");
+        assert!(
+            !is_addr_installed(addr),
+            "127.42.1.1 already present; clean it up first"
+        );
 
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         {
-            let _alloc =
-                LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).expect("allocate");
+            let _alloc = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr])
+                .expect("allocate");
             assert!(is_addr_installed(addr), "address should be installed");
         }
-        assert!(!is_addr_installed(addr), "address should be removed after drop");
+        assert!(
+            !is_addr_installed(addr),
+            "address should be removed after drop"
+        );
     }
 
     /// Two allocations from the same manager: the IP is installed once and
@@ -656,18 +699,30 @@ mod tests {
     #[cfg(target_os = "illumos")]
     fn double_alloc_installs_once_removes_once() {
         let addr: IpAddr = "127.42.1.2".parse().unwrap();
-        assert!(!is_addr_installed(addr), "127.42.1.2 already present; clean it up first");
+        assert!(
+            !is_addr_installed(addr),
+            "127.42.1.2 already present; clean it up first"
+        );
 
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
-        let a1 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
-        let a2 = LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let a1 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
+        let a2 =
+            LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
         assert!(is_addr_installed(addr));
 
         drop(a2);
-        assert!(is_addr_installed(addr), "should still be installed while a1 is live");
+        assert!(
+            is_addr_installed(addr),
+            "should still be installed while a1 is live"
+        );
 
         drop(a1);
-        assert!(!is_addr_installed(addr), "should be removed after all allocations drop");
+        assert!(
+            !is_addr_installed(addr),
+            "should be removed after all allocations drop"
+        );
     }
 
     /// Cross-process refcount: a child process acquires the same IP, then exits.
@@ -690,7 +745,10 @@ mod tests {
             format!("/tmp/loopback-mgr-test-xp-release-{}", std::process::id());
 
         let addr: IpAddr = ADDR.parse().unwrap();
-        assert!(!is_addr_installed(addr), "127.42.1.3 already present; clean it up first");
+        assert!(
+            !is_addr_installed(addr),
+            "127.42.1.3 already present; clean it up first"
+        );
 
         let _ = std::fs::remove_file(&ready);
         let _ = std::fs::remove_file(&release);
@@ -719,7 +777,10 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        assert!(is_addr_installed(addr), "child should have installed the IP");
+        assert!(
+            is_addr_installed(addr),
+            "child should have installed the IP"
+        );
 
         // Tell the child to release and wait for it to exit.
         // After the child exits its allocation is dropped (refcount 1 → 0), but
@@ -736,13 +797,17 @@ mod tests {
 
         // Child removed the IP (its was the sole holder; refcount 1 → 0).
         // Now the parent re-installs it.
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let alloc =
             LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
         assert!(is_addr_installed(addr));
 
         drop(alloc);
-        assert!(!is_addr_installed(addr), "IP should be removed after parent drops");
+        assert!(
+            !is_addr_installed(addr),
+            "IP should be removed after parent drops"
+        );
 
         let _ = std::fs::remove_file(&ready);
         let _ = std::fs::remove_file(&release);
@@ -761,7 +826,8 @@ mod tests {
         let release = std::env::var("LOOPBACK_HELPER_RELEASE").unwrap();
 
         let addr: IpAddr = addr_str.parse().unwrap();
-        let mgr = Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
+        let mgr =
+            Arc::new(Mutex::new(LoopbackIpManager::new("lo0", nop_logger())));
         let _alloc =
             LoopbackIpManager::allocate(Arc::clone(&mgr), &[addr]).unwrap();
 
