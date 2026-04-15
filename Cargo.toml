@@ -8,6 +8,7 @@ default-members = [
 
 members = [
     "lib",
+    "loopback-ip-mgr",
     "ztest",
     "examples/solo",
     "examples/duo",

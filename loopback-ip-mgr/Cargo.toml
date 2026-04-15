@@ -1,0 +1,8 @@
+[package]
+name = "loopback-ip-mgr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc.workspace = true
+slog.workspace = true
