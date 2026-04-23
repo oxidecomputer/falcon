@@ -5,10 +5,13 @@ use std::fs;
 use std::io;
 use std::time::Duration;
 
-const OVMF_URL: &str =
-    "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/OVMF_CODE.fd";
-const OVMF_DIGEST_URL: &str =
-    "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/OVMF_CODE.fd.sha256.txt";
+fn ovmf_url() -> String {
+    format!("{}/OVMF_CODE.fd", crate::asset_base())
+}
+
+fn ovmf_digest_url() -> String {
+    format!("{}/OVMF_CODE.fd.sha256.txt", crate::asset_base())
+}
 
 pub(crate) async fn ensure_ovmf_fd(
     falcon_dir: &str,
@@ -31,7 +34,7 @@ pub(crate) async fn ensure_ovmf_fd(
 
 async fn download_ovmf(path: &str, log: &Logger) -> Result<()> {
     info!(log, "downloading ovmf");
-    crate::download_large_file(OVMF_URL, path, log).await?;
+    crate::download_large_file(&ovmf_url(), path, log).await?;
     Ok(())
 }
 
@@ -63,7 +66,7 @@ async fn get_expected_ovmf_digest_impl() -> Result<String> {
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(30))
         .build()?;
-    let response = client.get(OVMF_DIGEST_URL).send().await?;
+    let response = client.get(ovmf_digest_url()).send().await?;
     let text = response.text().await?;
     Ok(text.trim().to_owned())
 }
