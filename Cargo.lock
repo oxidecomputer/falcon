@@ -1103,7 +1103,7 @@ dependencies = [
  "quote",
  "rand 0.10.0",
  "regex",
- "reqwest",
+ "reqwest 0.13.3",
  "ron",
  "serde",
  "sha2",
@@ -1442,7 +1442,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "percent-encoding",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -1501,7 +1501,7 @@ dependencies = [
  "progenitor-client",
  "propolis_api_types",
  "rand 0.9.2",
- "reqwest",
+ "reqwest 0.12.28",
  "schemars",
  "serde",
  "serde_json",
@@ -1773,6 +1773,35 @@ dependencies = [
  "wasm-streams",
  "web-sys",
  "webpki-roots",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "futures-core",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "percent-encoding",
+ "pin-project-lite",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
