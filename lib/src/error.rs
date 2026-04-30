@@ -29,6 +29,8 @@ pub enum Error {
     Wrap(String),
     #[error("netadm: {0}")]
     Libnet(#[from] libnet::Error),
+    #[error("libnet route error: {0}")]
+    LibnetRoute(#[from] libnet::route::Error),
     #[error("cli: {0}")]
     Cli(String),
     #[error("exclusive iface used multiple times: {0}")]
@@ -49,4 +51,6 @@ pub enum Error {
     #[error("no ports available")]
     NoPorts,
     Zfs(String),
+    #[error("default route has no interface")]
+    NoInterfaceForDefaultRoute,
 }

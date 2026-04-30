@@ -17,8 +17,12 @@ use anyhow::{anyhow, Context};
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::ArgAction;
 use colored::*;
-use futures::{SinkExt, StreamExt};
-use propolis_client::{types::InstanceStateRequested, Client};
+use futures::SinkExt;
+use propolis_client::{
+    support::{InstanceSerialConsoleHelper, WSClientOffset},
+    types::InstanceStateRequested,
+    Client,
+};
 use ron::de::from_str;
 use slog::{o, warn, Drain, Level, Logger};
 use tabwriter::TabWriter;
@@ -193,6 +197,10 @@ struct CmdExec {
     node: String,
     command: String,
 
+    /// Dump the output of the command in the log
+    #[clap(long)]
+    dump: bool,
+
     /// The path of the falcon output directory
     #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
     falcon_dir: Utf8PathBuf,
@@ -284,20 +292,20 @@ where
     let opts: Opts<T> = Opts::<T>::parse();
     match opts.subcmd {
         SubCommand::Preflight(p) => {
-            r.falcon_dir = p.falcon_dir;
+            r.set_falcon_dir(Some(p.falcon_dir.to_string()));
             preflight(r).await;
             Ok(RunMode::Unspec)
         }
         SubCommand::Launch(l) => {
             if let Some(path) = l.propolis {
-                r.propolis_binary = path
+                r.set_propolis_binary(Some(path));
             }
-            r.falcon_dir = l.falcon_dir;
+            r.set_falcon_dir(Some(l.falcon_dir.to_string()));
             launch(r).await;
             Ok(RunMode::Launch)
         }
         SubCommand::Destroy(d) => {
-            r.falcon_dir = d.falcon_dir;
+            r.set_falcon_dir(Some(d.falcon_dir.to_string()));
             destroy(r);
             Ok(RunMode::Destroy)
         }
@@ -337,8 +345,12 @@ where
             };
             if c.all {
                 for x in &r.deployment.nodes {
-                    hyperstart(&x.name, propolis_binary.clone(), &c.falcon_dir)
-                        .await?;
+                    hyperstart(
+                        &x.name,
+                        propolis_binary.clone(),
+                        c.falcon_dir.clone().into(),
+                    )
+                    .await?;
                 }
             } else {
                 match c.vm_name {
@@ -348,7 +360,12 @@ where
                         ))
                     }
                     Some(ref n) => {
-                        hyperstart(n, propolis_binary, &c.falcon_dir).await?
+                        hyperstart(
+                            n,
+                            propolis_binary,
+                            c.falcon_dir.clone().into(),
+                        )
+                        .await?
                     }
                 }
             }
@@ -367,8 +384,8 @@ where
             Ok(RunMode::Unspec)
         }
         SubCommand::Exec(ref c) => {
-            r.falcon_dir = c.falcon_dir.clone();
-            exec(r, &c.node, &c.command).await?;
+            r.set_falcon_dir(Some(c.falcon_dir.clone().into()));
+            exec(r, &c.node, &c.command, c.dump).await?;
             Ok(RunMode::Unspec)
         }
         SubCommand::Extra(c) => {
@@ -522,7 +539,7 @@ fn destroy(r: &Runner) {
     }
 }
 
-async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
+pub async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
     println!(
         "{}\n{}\n{}",
         "Entering VM console.".blue(),
@@ -542,10 +559,17 @@ async fn console(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
 
 // TODO copy pasta from propolis/cli/src/main.rs
 async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
-    let path = format!("ws://{}/instance/serial", addr);
-    let (mut ws, _) = tokio_tungstenite::connect_async(path)
-        .await
-        .with_context(|| anyhow!("failed to create serial websocket stream"))?;
+    let mut stream = InstanceSerialConsoleHelper::new(
+        addr,
+        // TODO: would be nice to request the last bit of history and maybe
+        // print the last line or so? Going too far back would get the
+        // `__FALCON_EXEC_FINISHED__` lines and prompt spew from Falcon setting
+        // up the VM though.
+        WSClientOffset::MostRecent(0),
+        None,
+    )
+    .await
+    .with_context(|| anyhow!("failed to create serial websocket stream"))?;
 
     let _raw_guard = RawTermiosGuard::stdio_guard()
         .with_context(|| anyhow!("failed to set raw mode"))?;
@@ -583,18 +607,30 @@ async fn serial(addr: SocketAddr) -> anyhow::Result<()> {
                         break;
                     }
                     Some(c) => {
-                        ws.send(Message::Binary(c)).await?;
+                        stream.send(Message::Binary(c)).await?;
                     },
                 }
             }
-            msg = ws.next() => {
+            msg = stream.recv() => {
                 match msg {
-                    Some(Ok(Message::Binary(input))) => {
-                        stdout.write_all(&input).await?;
-                        stdout.flush().await?;
+                    Some(Ok(msg)) => {
+                        match msg.process().await {
+                            Ok(Message::Binary(input)) => {
+                                stdout.write_all(&input).await?;
+                                stdout.flush().await?;
+                            }
+                            Ok(Message::Close(..)) => {
+                                break;
+                            }
+                            _ => {
+                                continue;
+                            }
+                        }
                     }
-                    Some(Ok(Message::Close(..))) | None => break,
-                    _ => continue,
+                    Some(Err(_)) => {
+                        continue;
+                    }
+                    None => break,
                 }
             }
         }
@@ -762,13 +798,15 @@ async fn hyperstop(name: &str, falcon_dir: &Utf8Path) -> Result<(), Error> {
 async fn hyperstart(
     name: &str,
     propolis_binary: String,
-    falcon_dir: &Utf8Path,
+    falcon_dir: String,
 ) -> Result<(), Error> {
+    let log = create_logger();
     // read topology
-    let mut path = falcon_dir.to_path_buf();
+    let mut path: Utf8PathBuf = falcon_dir.clone().into();
     path.push("topology.ron");
     let topo_ron = fs::read_to_string(&path)?;
-    let d: Deployment = from_str(&topo_ron)?;
+    let mut d: Deployment = from_str(&topo_ron)?;
+    d.nodes_preflight(&log).await?;
     path.pop();
 
     let mut node = None;
@@ -786,16 +824,27 @@ async fn hyperstart(
     path.push(format!("{name}.uuid"));
     let id: uuid::Uuid = fs::read_to_string(&path)?.trim_end().parse()?;
     path.pop();
-    let log = create_logger();
 
-    crate::launch_vm(&log, &propolis_binary, &id, node, falcon_dir, None)
-        .await?;
+    crate::launch_vm(
+        &log,
+        &propolis_binary,
+        &id,
+        node,
+        &falcon_dir,
+        Some(&node.components),
+    )
+    .await?;
 
     Ok(())
 }
 
-async fn exec(r: &Runner, node: &str, command: &str) -> Result<(), Error> {
-    println!("{}", r.do_exec(node, command).await?);
+async fn exec(
+    r: &Runner,
+    node: &str,
+    command: &str,
+    dump: bool,
+) -> Result<(), Error> {
+    println!("{}", r.do_exec(node, command, dump).await?);
     Ok(())
 }
 

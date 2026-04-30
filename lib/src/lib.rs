@@ -2,6 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#![allow(clippy::result_large_err)]
+
 // Copyright 2022 Oxide Computer Company
 
 #[cfg(test)]
@@ -10,15 +12,28 @@ mod util;
 
 pub mod cli;
 pub mod error;
+pub mod ovmf;
+pub mod propolis;
 pub mod serial;
 pub mod unit;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use ovmf::ensure_ovmf_fd;
+use oxnet::{IpNet, Ipv4Net};
+use propolis::ensure_propolis_binary;
+pub use propolis_client::instance_spec::SmbiosType1Input;
+use propolis_client::instance_spec::{
+    Board, BootOrderEntry, BootSettings, Chipset, ComponentV0,
+    DlpiNetworkBackend, FileStorageBackend, I440Fx, InstanceMetadata,
+    InstanceSpec, P9fs, PciPath, SerialPort, SerialPortNumber, SoftNpuP9,
+    SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk, VirtioNetworkBackend,
+    VirtioNic,
+};
 use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
@@ -28,7 +43,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
 use std::io::BufWriter;
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
@@ -40,14 +55,8 @@ use tokio::time::{sleep, Duration, Instant};
 use uuid::Uuid;
 use xz2::read::XzDecoder;
 
-use propolis_client::types::InstanceMetadata;
-use propolis_client::types::{
-    ComponentV0, DlpiNetworkBackend, FileStorageBackend, P9fs, SerialPort,
-    SerialPortNumber, SoftNpuP9, SoftNpuPciPort, SoftNpuPort, VirtioDisk,
-    VirtioNetworkBackend, VirtioNic,
-};
-use propolis_client::PciPath;
-use propolis_client::SpecKey;
+// See build.rs for how this file is generated
+include!(concat!(env!("OUT_DIR"), "/propolis_version.rs"));
 
 #[macro_export]
 macro_rules! node {
@@ -83,6 +92,8 @@ macro_rules! cmd {
 }
 
 pub const DEFAULT_FALCON_DIR: &str = ".falcon";
+pub const DEFAULT_PROPOLIS_RELATIVE_PATH: &str = "bin/propolis-server";
+pub const DEFAULT_PROPOLIS_SERVER: &str = ".falcon/bin/propolis-server";
 const ZFS_BIN: &str = "/usr/sbin/zfs";
 const DLADM_BIN: &str = "/usr/sbin/dladm";
 const DD_BIN: &str = "/usr/bin/dd";
@@ -98,7 +109,7 @@ pub struct Runner {
     pub persistent: bool,
 
     /// The propolis-server binary to use
-    pub propolis_binary: String,
+    custom_propolis_binary: Option<String>,
 
     pub log: Logger,
 
@@ -108,7 +119,7 @@ pub struct Runner {
     /// The location of the ".falcon" directory for a given deployment
     ///
     /// This directory is created by falcon and stores configuration.
-    pub falcon_dir: Utf8PathBuf,
+    falcon_dir: String,
 }
 
 /// A Deployment is the top level Falcon object. It contains a set of nodes and
@@ -177,6 +188,10 @@ pub struct Node {
     pub vnc_port: Option<u16>,
     /// Propolis components for instance spec
     pub components: BTreeMap<SpecKey, ComponentV0>,
+    /// SMBIOS Type 1 table information that gets injected into the guest
+    pub smbios: Option<SmbiosType1Input>,
+    /// Optional boot iso image
+    pub bootiso: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -292,15 +307,47 @@ impl Runner {
             deployment: Deployment::new(name),
             log: slog::Logger::root(drain, slog::o!()),
             persistent: false,
-            propolis_binary: "propolis-server".into(),
+            custom_propolis_binary: None,
             dataset: dataset(),
-            falcon_dir: DEFAULT_FALCON_DIR.into(),
+            falcon_dir: DEFAULT_FALCON_DIR.to_string(),
         }
     }
 
-    pub fn set_falcon_dir(&mut self, dir: &Utf8Path) {
-        self.falcon_dir = dir.to_string().into();
-        info!(self.log, "set falcon dir to {}", self.falcon_dir);
+    pub fn set_falcon_dir(&mut self, dir: Option<String>) {
+        let falcon_dir = dir.unwrap_or(DEFAULT_FALCON_DIR.to_string());
+        if self.falcon_dir != falcon_dir {
+            info!(self.log, "set falcon dir to {}", &self.falcon_dir);
+            self.falcon_dir = falcon_dir;
+        }
+    }
+
+    pub fn get_falcon_dir(&self) -> String {
+        String::from(&self.falcon_dir)
+    }
+
+    pub fn set_propolis_binary(&mut self, path: Option<String>) {
+        // if path is None, we always recalculate the path using the current falcon_dir.
+        // this makes the propolis binary is always updated with the falcon_dir unless
+        // a user explicitly sets the path
+        self.custom_propolis_binary = path.clone();
+        info!(
+            self.log,
+            "set propolis binary to {}",
+            path.unwrap_or(format!(
+                "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
+                &self.falcon_dir
+            ))
+        );
+    }
+
+    pub fn get_propolis_binary(&self) -> String {
+        match self.custom_propolis_binary {
+            None => format!(
+                "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
+                self.get_falcon_dir()
+            ),
+            Some(ref bin) => String::from(bin),
+        }
     }
 
     /// Create a new node within this deployment with the given name. Names must
@@ -333,6 +380,8 @@ impl Runner {
             primary_disk_backing: PrimaryDiskBacking::Zvol,
             vnc_port: None,
             components: BTreeMap::new(),
+            smbios: None,
+            bootiso: None,
         };
         self.deployment.nodes.push(n);
         r
@@ -354,6 +403,14 @@ impl Runner {
 
     pub fn get_node(&self, r: NodeRef) -> &Node {
         &self.deployment.nodes[r.index]
+    }
+
+    pub fn set_vnc_port(&mut self, r: NodeRef, port: Option<u16>) {
+        self.deployment.nodes[r.index].vnc_port = port;
+    }
+
+    pub fn set_bootiso(&mut self, r: NodeRef, path: Option<&str>) {
+        self.deployment.nodes[r.index].bootiso = path.map(|x| x.into());
     }
 
     pub fn do_setup(&mut self, r: NodeRef, value: bool) {
@@ -456,7 +513,11 @@ impl Runner {
     }
 
     pub fn set_backing(&mut self, n: NodeRef, backing: PrimaryDiskBacking) {
-        self.deployment.nodes[n.index].primary_disk_backing = backing
+        self.deployment.nodes[n.index].primary_disk_backing = backing;
+    }
+
+    pub fn set_smbios_type1(&mut self, n: NodeRef, smbios: SmbiosType1Input) {
+        self.deployment.nodes[n.index].smbios = Some(smbios);
     }
 
     /// Create an external link attached to `host_ifx` via a new VNIC.
@@ -491,6 +552,20 @@ impl Runner {
             exclusive,
         });
         self.deployment.nodes[n.index].radix += 1;
+    }
+
+    /// Search the host system for a default route. If a default route is found
+    /// add the datalink underpinning the nexthop interface as an external link
+    /// for the specified node.
+    pub fn default_ext_link(&mut self, n: NodeRef) -> Result<(), Error> {
+        let rt = libnet::get_route(
+            IpNet::V4(Ipv4Net::new_unchecked(Ipv4Addr::new(0, 0, 0, 0), 0)),
+            None,
+        )?;
+        let ifx = rt.ifx.ok_or(Error::NoInterfaceForDefaultRoute)?;
+        debug!(self.log, "using default route interface {ifx}");
+        self.ext_link(&ifx, n);
+        Ok(())
     }
 
     /// Provide the host folder `src` as a p9fs mount to the guest with the tag
@@ -542,6 +617,16 @@ impl Runner {
     /// set up the serial console for each VM and, run any user defined exec
     /// statements.
     pub async fn launch(&mut self) -> Result<(), Error> {
+        info!(
+            self.log,
+            "launching runner: deployment({}) persistent({}) custom_propolis_binary({:?}) dataset({}) falcon_dir({})",
+            self.deployment.name,
+            self.persistent,
+            self.custom_propolis_binary,
+            self.dataset,
+            self.falcon_dir,
+        );
+
         self.preflight().await?;
         match self.do_launch().await {
             Ok(()) => Ok(()),
@@ -553,13 +638,24 @@ impl Runner {
     }
 
     async fn preflight(&mut self) -> Result<(), Error> {
-        // Verify all required executables are discoverable.
-        let out = Command::new(&self.propolis_binary).args(["-V"]).output();
-        if out.is_err() {
-            return Err(Error::Exec(format!(
-                "failed to find {} on PATH",
-                &self.propolis_binary
-            )));
+        info!(
+            self.log,
+            "starting preflight for deployment {}", self.deployment.name
+        );
+
+        let falcon_dir = &self.get_falcon_dir();
+        let propolis_binary = &self.get_propolis_binary();
+
+        // We need to ensure the propolis-server binary is present and valid unless
+        // the user has explicitly pointed to a binary, then they are responsible.
+        if self.custom_propolis_binary.is_none() {
+            ensure_propolis_binary(
+                // Tied to cargo dependency, see build.rs for details.
+                PROPOLIS_REV,
+                propolis_binary,
+                &self.log,
+            )
+            .await?;
         }
 
         // validate that no external links are being jointly specified
@@ -582,13 +678,25 @@ impl Runner {
             }
         }
 
+        ensure_ovmf_fd(falcon_dir, &self.log).await?;
+        // Verify all required executables are usable.
+        if let Err(e) = Command::new(propolis_binary).args(["-V"]).output() {
+            error!(
+                self.log,
+                "error running propolis_binary command ({propolis_binary}): {e}"
+            );
+            return Err(Error::Exec(format!(
+                "error running propolis_binary command ({propolis_binary}): {e}"
+            )));
+        };
+
         // ensure falcon working dir
-        fs::create_dir_all(&self.falcon_dir)?;
+        fs::create_dir_all(falcon_dir)?;
 
         // write falcon config
         let pretty = PrettyConfig::new().separate_tuple_members(true);
         let out = format!("{}\n", to_string_pretty(&self.deployment, pretty)?);
-        let mut topo_path = self.falcon_dir.clone();
+        let mut topo_path: Utf8PathBuf = falcon_dir.into();
         topo_path.push("topology.ron");
         fs::write(&topo_path, out)?;
 
@@ -643,6 +751,9 @@ impl Runner {
     /// Tear down all the nodes, followed by the links and the ZFS pool
     // TODO in parallel
     pub fn destroy(&self) -> Result<(), Error> {
+        info!(self.log, "destroying deployment {}", self.deployment.name);
+
+        // Destroy nodes
         info!(self.log, "destroying nodes");
         for n in self.deployment.nodes.iter() {
             n.destroy(self)?;
@@ -667,19 +778,67 @@ impl Runner {
 
         // Destroy workspace
         info!(self.log, "destroying workspace at {}", self.falcon_dir);
-        fs::remove_dir_all(&self.falcon_dir)?;
+        self.clean_workspace()?;
 
+        Ok(())
+    }
+
+    fn clean_workspace(&self) -> Result<(), Error> {
+        let falcon_dir = match std::fs::read_dir(&self.falcon_dir) {
+            Ok(dir) => dir,
+            Err(e) => {
+                error!(
+                    self.log,
+                    "read_dir failed for {}: {e}", self.falcon_dir
+                );
+                return Err(Error::IO(e));
+            }
+        };
+        for ent in falcon_dir {
+            let p = ent?.path();
+            // Don't delete downloaded binaries on each launch. These are
+            // checked to ensure they are what falcon expects. Everything
+            // else (topology models and state) get deleted.
+            if p == Path::new(&format!("{}/bin", self.falcon_dir.as_str())) {
+                continue;
+            }
+            if p.is_dir() {
+                if let Err(e) = std::fs::remove_dir_all(&p) {
+                    error!(self.log, "failed to remove dir {}", p.display());
+                    return Err(Error::IO(e));
+                };
+            }
+            if p.is_file() {
+                if let Err(e) = std::fs::remove_file(&p) {
+                    error!(self.log, "failed to remove dir {}", p.display());
+                    return Err(Error::IO(e));
+                };
+            }
+        }
         Ok(())
     }
 
     /// Run a command synchronously in the vm.
     pub async fn exec(&self, n: NodeRef, cmd: &str) -> Result<String, Error> {
         let name = self.deployment.nodes[n.index].name.clone();
-        self.do_exec(&name, cmd).await
+        self.do_exec(&name, cmd, false).await
+    }
+    pub async fn exec_dump(
+        &self,
+        n: NodeRef,
+        cmd: &str,
+    ) -> Result<String, Error> {
+        let name = self.deployment.nodes[n.index].name.clone();
+        self.do_exec(&name, cmd, true).await
     }
 
-    async fn do_exec(&self, name: &str, cmd: &str) -> Result<String, Error> {
-        let mut path = self.falcon_dir.clone();
+    async fn do_exec(
+        &self,
+        name: &str,
+        cmd: &str,
+        dump: bool,
+    ) -> Result<String, Error> {
+        let mut path: Utf8PathBuf = self.falcon_dir.clone().into();
         path.push(format!("{name}.uuid"));
         let id = match fs::read_to_string(&path) {
             Ok(u) => u,
@@ -716,7 +875,7 @@ impl Runner {
             self.log.clone(),
         );
         let mut ws = sc.start(true).await?;
-        let out = sc.exec(&mut ws, cmd.to_string()).await?;
+        let out = sc.exec(&mut ws, cmd.to_string(), dump).await?;
         sc.logout(&mut ws).await?;
         Ok(out)
     }
@@ -815,6 +974,10 @@ impl Deployment {
 impl Drop for Runner {
     fn drop(&mut self) {
         if !self.persistent {
+            info!(
+                self.log,
+                "destroying runner for deployment {}", self.deployment.name
+            );
             match self.destroy() {
                 Ok(()) => {}
                 Err(e) => error!(self.log, "cleanup failed: {}", e),
@@ -873,9 +1036,41 @@ impl Node {
                 self.create_file_backing(log, deployment_name)?
             }
         };
-        self.create_blockdev(backing);
+        let main_disk_key = self.create_blockdev(backing);
 
         let mut pci_index = 5;
+
+        if let Some(bootiso) = &self.bootiso {
+            let iso_key = SpecKey::Name("boot_iso".to_string());
+            self.components.insert(
+                iso_key.clone(),
+                ComponentV0::VirtioDisk(VirtioDisk {
+                    backend_id: SpecKey::Name("boot_iso_backing".into()),
+                    pci_path: PciPath::new(0, pci_index, 0).unwrap(),
+                }),
+            );
+
+            self.components.insert(
+                SpecKey::Name("boot_iso_backing".to_string()),
+                ComponentV0::FileStorageBackend(FileStorageBackend {
+                    path: bootiso.to_string(),
+                    readonly: true,
+                    block_size: 2048,
+                    workers: None,
+                }),
+            );
+
+            self.components.insert(
+                SpecKey::Name("boot_iso_first".to_string()),
+                ComponentV0::BootSettings(BootSettings {
+                    order: vec![
+                        BootOrderEntry { id: iso_key },
+                        BootOrderEntry { id: main_disk_key },
+                    ],
+                }),
+            );
+            pci_index += 1;
+        }
 
         // mounts
         for (i, m) in self.mounts.iter().enumerate() {
@@ -971,7 +1166,7 @@ impl Node {
                         SpecKey::Name(format!("softnpu{softnpu_index}-port")),
                         ComponentV0::SoftNpuPort(SoftNpuPort {
                             link_name: format!("softnpu{softnpu_index}"),
-                            backend_id,
+                            backend_id: SpecKey::Name(backend_id.to_string()),
                         }),
                     );
 
@@ -1052,7 +1247,7 @@ impl Node {
             "/dev/zvol/rdsk/{}/img/{}",
             self.dataset, self.image
         ))?;
-        let pb = Self::new_progress_bar();
+        let pb = new_progress_bar();
         pb.inc_length(dst.metadata().context("zvol dst metadata")?.len());
         let mut dst = BufWriter::with_capacity(1024 * 1024, dst);
 
@@ -1082,8 +1277,9 @@ impl Node {
         from: &str,
         to: &str,
     ) -> Result<usize, Error> {
+        let tmp = format!("{to}.tmp");
         if Path::new(to).exists() {
-            info!(log, "image already extracted");
+            info!(log, "image already extracted: {to}");
             let file = std::fs::File::open(to)?;
             return Ok(file
                 .metadata()
@@ -1093,7 +1289,7 @@ impl Node {
                 .context("file size as usize")?);
         }
         info!(log, "extracting image to {to}");
-        let pb = Self::new_progress_bar();
+        let pb = new_progress_bar();
         let in_file = std::fs::File::open(from)?;
         let len = in_file
             .metadata()
@@ -1102,29 +1298,18 @@ impl Node {
         pb.inc_length(len);
         let in_file = pb.wrap_read(in_file);
         let mut dec = XzDecoder::new(in_file);
-        let mut outfile = std::fs::File::create(to)?;
+        let mut outfile = std::fs::File::create(&tmp)?;
         std::io::copy(&mut dec, &mut outfile)?;
         pb.finish();
+
+        std::fs::rename(tmp, to).context("rename to final image")?;
+
         Ok(outfile
             .metadata()
             .context("get file metadata")?
             .size()
             .try_into()
             .context("file size as usize")?)
-    }
-
-    fn new_progress_bar() -> ProgressBar {
-        let pb = ProgressBar::new(0);
-        let sty = ProgressStyle::with_template(
-            "[{elapsed_precise}] \
-            {bar:40.cyan/blue} \
-            {bytes}/{total_bytes} \
-            {msg}",
-        )
-        .unwrap()
-        .progress_chars("##-");
-        pb.set_style(sty);
-        pb
     }
 
     async fn try_download_base_image(
@@ -1134,7 +1319,7 @@ impl Node {
         path: &str,
     ) -> Result<(), Error> {
         if Path::new(path).exists() {
-            info!(log, "image already downloaded");
+            info!(log, "image already downloaded: {path}");
             return Ok(());
         }
         let url = format!(
@@ -1142,45 +1327,7 @@ impl Node {
         );
         info!(log, "trying to download {url}");
 
-        let pb = Self::new_progress_bar();
-
-        let client = reqwest::ClientBuilder::new()
-            .timeout(Duration::from_secs(3600))
-            .tcp_keepalive(Duration::from_secs(3600))
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .unwrap();
-        let response = client
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| format!("failed to get url {url}"))?;
-
-        if !response.status().is_success() {
-            Err(anyhow::anyhow!(
-                "failed to download image: {}",
-                response.status()
-            ))?;
-        }
-        pb.inc_length(
-            response
-                .content_length()
-                .ok_or_else(|| anyhow::anyhow!("Missing content length"))?,
-        );
-        let mut file = tokio::fs::File::create(path)
-            .await
-            .with_context(|| format!("failed to create {path}"))?;
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.with_context(|| {
-                format!("failed reading response from {url}")
-            })?;
-            file.write_all(&chunk)
-                .await
-                .with_context(|| format!("failed writing {path:?}"))?;
-            pb.inc(chunk.len().try_into().unwrap());
-        }
-        pb.finish();
+        download_large_file(url.as_str(), path, log).await?;
         Ok(())
     }
 
@@ -1275,9 +1422,10 @@ impl Node {
         Ok(backing)
     }
 
-    fn create_blockdev(&mut self, backing: String) {
+    fn create_blockdev(&mut self, backing: String) -> SpecKey {
+        let key = SpecKey::Name("main_disk".to_string());
         self.components.insert(
-            SpecKey::Name("main_disk".to_string()),
+            key.clone(),
             ComponentV0::VirtioDisk(VirtioDisk {
                 backend_id: SpecKey::Name("main_disk_backing".into()),
                 pci_path: PciPath::new(0, 4, 0).unwrap(),
@@ -1289,17 +1437,21 @@ impl Node {
             ComponentV0::FileStorageBackend(FileStorageBackend {
                 path: backing,
                 readonly: false,
+                block_size: 512,
+                workers: None,
             }),
         );
+        key
     }
 
     async fn launch(&self, r: &Runner) -> Result<(), Error> {
         // launch vm
 
         let id = uuid::Uuid::new_v4();
+
         let port = launch_vm(
             &r.log,
-            &r.propolis_binary,
+            &r.get_propolis_binary(),
             &id,
             self,
             &r.falcon_dir,
@@ -1339,8 +1491,8 @@ impl Node {
                     dst = mount.destination
                 )
             };
-            sc.exec(&mut ws, cmd).await?;
-            sc.exec(&mut ws, "cd".into()).await?;
+            sc.exec(&mut ws, cmd, false).await?;
+            sc.exec(&mut ws, "cd".into(), false).await?;
             info!(
                 r.log,
                 "{}: finished mounting {}", self.name, mount.destination
@@ -1349,19 +1501,19 @@ impl Node {
 
         // set hostname
         let cmd = format!("hostname {}", self.name);
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
         let cmd = format!("echo '{name}' > /etc/nodename", name = self.name,);
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
         let cmd = format!(
             "echo '::1 {name}.local {name}' >> /etc/hosts",
             name = self.name,
         );
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
         let cmd = format!(
             "echo '127.0.0.1 {name}.local {name}' >> /etc/hosts",
             name = self.name,
         );
-        sc.exec(&mut ws, cmd).await?;
+        sc.exec(&mut ws, cmd, false).await?;
 
         // log out after finishing setup
         info!(r.log, "{}: logging out", self.name);
@@ -1373,18 +1525,24 @@ impl Node {
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
         // get propolis pid
-        let mut path = r.falcon_dir.clone();
+        let mut path: Utf8PathBuf = r.falcon_dir.clone().into();
         path.push(format!("{}.pid", self.name));
         let pid = match fs::read_to_string(&path) {
             Ok(pid) => match pid.parse::<i32>() {
                 Ok(pid) => pid,
                 Err(e) => {
-                    warn!(r.log, "parse propolis pid for {}: {}", self.name, e);
+                    warn!(
+                        r.log,
+                        "parse propolis pid for {} ({path}): {e}", self.name
+                    );
                     return Ok(());
                 }
             },
             Err(e) => {
-                warn!(r.log, "get propolis pid for {}: {}", self.name, e);
+                warn!(
+                    r.log,
+                    "get propolis pid for {} ({path}): {e}", self.name
+                );
                 return Ok(());
             }
         };
@@ -1571,12 +1729,13 @@ pub(crate) async fn launch_vm(
     propolis_binary: &str,
     id: &uuid::Uuid,
     node: &Node,
-    falcon_dir: &Utf8Path,
+    falcon_dir: &String,
     components: Option<&BTreeMap<SpecKey, ComponentV0>>,
 ) -> Result<u16, Error> {
+    info!(log, "{}: launching node", node.name);
     // launch propolis-server
 
-    let mut path = falcon_dir.to_path_buf();
+    let mut path: Utf8PathBuf = falcon_dir.clone().into();
 
     path.push(format!("{}.out", node.name));
     let stdout = fs::File::create(&path)?;
@@ -1590,7 +1749,7 @@ pub(crate) async fn launch_vm(
     let mut cmd = Command::new(propolis_binary);
     let mut args = vec![
         "run".to_string(),
-        "/var/ovmf/OVMF_CODE.fd".to_string(),
+        format!("{}/bin/OVMF_CODE.fd", falcon_dir.as_str()),
         sockaddr.clone(),
     ];
     if let Some(vnc_port) = node.vnc_port {
@@ -1640,7 +1799,7 @@ pub(crate) async fn launch_vm(
     fs::write(&path, id.to_string())?;
     path.pop();
 
-    let properties = propolis_client::types::InstanceProperties {
+    let properties = propolis_client::instance_spec::InstanceProperties {
         id: *id,
         name: node.name.clone(),
         description: "a falcon vm".to_string(),
@@ -1654,24 +1813,25 @@ pub(crate) async fn launch_vm(
         },
     };
 
-    let spec = propolis_client::types::InstanceSpecV0 {
-        board: propolis_client::types::Board {
+    //let spec = propolis_client::types::InstanceSpecV0 {
+    let spec = InstanceSpec {
+        board: Board {
             cpus: node.cores,
             memory_mb: node.memory,
-            chipset: propolis_client::types::Chipset::I440Fx(
-                propolis_client::types::I440Fx { enable_pcie: false },
-            ),
+            chipset: Chipset::I440Fx(I440Fx { enable_pcie: false }),
             cpuid: None,
-            guest_hv_interface: None,
+            guest_hv_interface:
+                propolis_client::instance_spec::GuestHypervisorInterface::Bhyve,
         },
         components: if let Some(components) = components {
             components
                 .iter()
-                .map(|(spec_key, comp)| (spec_key.to_string(), comp.clone()))
+                .map(|(spec_key, comp)| (spec_key.clone(), comp.clone()))
                 .collect()
         } else {
             Default::default()
         },
+        smbios: node.smbios.clone(),
     };
     let req = propolis_client::types::InstanceEnsureRequest {
         properties,
@@ -1683,14 +1843,18 @@ pub(crate) async fn launch_vm(
     // we just launched the instance, so wait for it to become ready
     let mut success = false;
     for _ in 0..30 {
-        info!(log, "instance ensure: {}", node.name);
+        info!(log, "{}: instance ensure", node.name);
         match client.instance_ensure().body(&req).send().await {
             Ok(_) => {
                 success = true;
                 break;
             }
             Err(e) => {
-                warn!(log, "instance ensure error: {e}, retry in 1 second");
+                warn!(
+                    log,
+                    "{}: instance ensure error: {e}, retry in 1 second",
+                    node.name
+                );
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
@@ -1700,7 +1864,7 @@ pub(crate) async fn launch_vm(
         client.instance_ensure().body(&req).send().await?;
     }
 
-    info!(log, "instance run: {}", node.name);
+    info!(log, "{}: instance run", node.name);
     // run vm instance
     client
         .instance_state_put()
@@ -1773,4 +1937,91 @@ async fn do_find_propolis_port_in_log(
             }
         }
     }
+}
+
+pub(crate) fn new_progress_bar() -> ProgressBar {
+    let pb = ProgressBar::new(0);
+    let sty = ProgressStyle::with_template(
+        "[{elapsed_precise}] \
+            {bar:40.cyan/blue} \
+            {bytes}/{total_bytes} \
+            {msg}",
+    )
+    .unwrap()
+    .progress_chars("##-");
+    pb.set_style(sty);
+    pb
+}
+
+pub(crate) async fn download_large_file(
+    url: &str,
+    destination_path: &str,
+    log: &Logger,
+) -> anyhow::Result<()> {
+    for _ in 0..9 {
+        match download_large_file_impl(url, destination_path).await {
+            Ok(()) => return Ok(()),
+            Err(e) => warn!(log, "{e}: retrying in 1 second"),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    download_large_file_impl(url, destination_path).await
+}
+
+pub async fn download_large_file_impl(
+    url: &str,
+    destination_path: &str,
+) -> anyhow::Result<()> {
+    let tmp_destination_path = &format!("{destination_path}.tmp");
+    let path = Path::new(destination_path);
+    let tmp_path = Path::new(tmp_destination_path);
+    let dir = path.parent().ok_or_else(|| {
+        anyhow!("could not determine parent dir for {destination_path}")
+    })?;
+    std::fs::create_dir_all(dir)?;
+
+    let pb = new_progress_bar();
+
+    let client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(3600))
+        .tcp_keepalive(Duration::from_secs(3600))
+        .connect_timeout(Duration::from_secs(15))
+        .build()
+        .unwrap();
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("failed to get url {url}"))?;
+
+    if !response.status().is_success() {
+        Err(anyhow::anyhow!(
+            "failed to download image: {}, ",
+            response.status()
+        ))?;
+    }
+    pb.inc_length(
+        response
+            .content_length()
+            .ok_or_else(|| anyhow::anyhow!("Missing content length"))?,
+    );
+    let mut file = tokio::fs::File::create(tmp_path)
+        .await
+        .with_context(|| format!("failed to create {tmp_destination_path}"))?;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk
+            .with_context(|| format!("failed reading response from {url}"))?;
+        file.write_all(&chunk)
+            .await
+            .with_context(|| format!("failed writing {tmp_path:?}"))?;
+        pb.inc(chunk.len().try_into().unwrap());
+    }
+    pb.finish();
+
+    tokio::fs::rename(tmp_path, path).await.with_context(|| {
+        format!("failed to move {tmp_destination_path} to {destination_path}")
+    })?;
+
+    Ok(())
 }

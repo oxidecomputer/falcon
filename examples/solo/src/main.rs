@@ -2,8 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-// Copyright 2022 Oxide Computer Company
+#![allow(clippy::result_large_err)]
 
+// Copyright 2022 Oxide Computer Company
 use libfalcon::{cli::run, error::Error, unit::gb, Runner};
 
 #[tokio::main]
