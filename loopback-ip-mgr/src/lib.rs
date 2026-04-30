@@ -8,6 +8,7 @@
 //! loopback interface with cross-process reference counting, ensuring proper
 //! cleanup even if tests panic.
 
+use network_interface::{NetworkInterface, NetworkInterfaceConfig};
 use slog::{error, info, Logger};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -168,6 +169,13 @@ impl LoopbackIpManager {
         log: &Logger,
         ip: &ManagedIp,
     ) -> Result<(), std::io::Error> {
+        // Another process may have installed the address while we held the
+        // flock.  Skip the shell command to avoid a spurious error.
+        if is_addr_on_system(ip.address) {
+            info!(log, "{}: already on system, skipping install", ip.address);
+            return Ok(());
+        }
+
         let mask = match ip.address {
             IpAddr::V4(_) => 32,
             IpAddr::V6(_) => 128,
@@ -215,14 +223,11 @@ impl LoopbackIpManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            // "Address already exists/assigned" is ok — another process beat us to it
-            if !stderr.to_lowercase().contains("already") {
-                error!(log, "failed to install {}: {stderr}", ip.address);
-                return Err(std::io::Error::other(format!(
-                    "failed to install {}",
-                    ip.address
-                )));
-            }
+            error!(log, "failed to install {}: {stderr}", ip.address);
+            return Err(std::io::Error::other(format!(
+                "failed to install {}",
+                ip.address
+            )));
         }
         info!(log, "added {} to system", ip.address);
         Ok(())
@@ -309,6 +314,12 @@ impl LoopbackIpManager {
     }
 
     fn remove_ip_from_system_static(ifname: &str, log: &Logger, addr: IpAddr) {
+        // Skip the shell command if the address isn't on the system at all.
+        if !is_addr_on_system(addr) {
+            info!(log, "{addr}: not on system, skipping removal");
+            return;
+        }
+
         #[cfg(target_os = "illumos")]
         let output = {
             let v = match addr {
@@ -350,16 +361,8 @@ impl LoopbackIpManager {
             Ok(output) => {
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    let lc = stderr.to_lowercase();
-                    // These are acceptable — the IP wasn't present to begin with
-                    if !lc.contains("not found") && !lc.contains("can't assign")
-                    {
-                        error!(
-                            log,
-                            "failed to remove {addr} from system: {stderr}"
-                        );
-                        return;
-                    }
+                    error!(log, "failed to remove {addr} from system: {stderr}");
+                    return;
                 }
                 info!(log, "removed {addr} from system");
             }
@@ -368,6 +371,15 @@ impl LoopbackIpManager {
             }
         }
     }
+}
+
+/// Returns true if the address is currently present on any interface.
+fn is_addr_on_system(addr: IpAddr) -> bool {
+    NetworkInterface::show()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|iface| iface.addr)
+        .any(|a| a.ip() == addr)
 }
 
 /// Returns true for addresses that are always present on loopback interfaces
@@ -659,16 +671,8 @@ mod tests {
     //
     // Test IPs are from 127.42.0.0/16, which is unused loopback space.
 
-    #[cfg(target_os = "illumos")]
     fn is_addr_installed(addr: IpAddr) -> bool {
-        let out = Command::new("ipadm")
-            .args(["show-addr", "-p", "-o", "addr"])
-            .output()
-            .expect("ipadm show-addr");
-        let prefix = addr.to_string();
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .any(|line| line.trim().starts_with(&prefix))
+        is_addr_on_system(addr)
     }
 
     #[test]
