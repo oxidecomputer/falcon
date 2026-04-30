@@ -8,6 +8,7 @@ default-members = [
 
 members = [
     "lib",
+    "loopback-ip-mgr",
     "ztest",
     "examples/solo",
     "examples/duo",
@@ -22,6 +23,7 @@ zone = "0.3.1"
 regex = "1.12"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
+network-interface = { git = "https://github.com/oxidecomputer/network-interface", branch = "illumos" }
 uuid = { version = "1.22.0", features = [ "serde", "v4" ] }
 serde = "1.0"
 ron = "0.12"
