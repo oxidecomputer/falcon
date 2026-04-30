@@ -318,7 +318,9 @@ impl LoopbackIpManager {
             info!(log, "deleting addr object '{addr_obj}'");
             match libnet::delete_ipaddr(&addr_obj) {
                 Ok(()) => info!(log, "removed {addr} from system"),
-                Err(e) => error!(log, "failed to remove {addr} from system: {e}"),
+                Err(e) => {
+                    error!(log, "failed to remove {addr} from system: {e}")
+                }
             }
             return;
         }
