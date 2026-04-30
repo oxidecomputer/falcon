@@ -14,6 +14,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::IpAddr;
 use std::os::unix::io::AsRawFd;
+#[cfg(any(not(target_os = "illumos"), test))]
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
@@ -176,61 +177,52 @@ impl LoopbackIpManager {
             return Ok(());
         }
 
-        let mask = match ip.address {
-            IpAddr::V4(_) => 32,
-            IpAddr::V6(_) => 128,
-        };
-        let addr_str = format!("{}/{mask}", ip.address);
-
         #[cfg(target_os = "illumos")]
-        let output = {
-            let v = match ip.address {
-                IpAddr::V4(_) => "v4",
-                IpAddr::V6(_) => "v6",
-            };
-            let mut ip_descr = format!("{v}{}", ip.address);
-            ip_descr.retain(|c| c.is_alphanumeric());
-            let addr_obj = format!("{}/{}", ifname, ip_descr);
-            let cmd = [
-                "ipadm",
-                "create-addr",
-                "-t",
-                "-T",
-                "static",
-                "-a",
-                &addr_str,
-                &addr_obj,
-            ];
-            info!(log, "running cmd '{cmd:?}'");
-            Command::new("pfexec").args(cmd).output()?
-        };
-
-        #[cfg(target_os = "linux")]
-        let output = Command::new("sudo")
-            .args(["ip", "addr", "add", &addr_str, "dev", ifname])
-            .output()?;
-
-        #[cfg(target_os = "macos")]
-        let output = {
-            let af = match ip.address {
-                IpAddr::V4(_) => "inet",
-                IpAddr::V6(_) => "inet6",
-            };
-            Command::new("sudo")
-                .args(["ifconfig", ifname, af, &addr_str, "alias"])
-                .output()?
-        };
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error!(log, "failed to install {}: {stderr}", ip.address);
-            return Err(std::io::Error::other(format!(
-                "failed to install {}",
-                ip.address
-            )));
+        {
+            let addr_obj = illumos_addr_obj(ifname, ip.address);
+            let net = oxnet::IpNet::host_net(ip.address);
+            info!(log, "creating addr object '{addr_obj}'");
+            libnet::create_ipaddr(&addr_obj, net)
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            info!(log, "added {} to system", ip.address);
+            return Ok(());
         }
-        info!(log, "added {} to system", ip.address);
-        Ok(())
+
+        #[cfg(not(target_os = "illumos"))]
+        {
+            let mask = match ip.address {
+                IpAddr::V4(_) => 32,
+                IpAddr::V6(_) => 128,
+            };
+            let addr_str = format!("{}/{mask}", ip.address);
+
+            #[cfg(target_os = "linux")]
+            let output = Command::new("sudo")
+                .args(["ip", "addr", "add", &addr_str, "dev", ifname])
+                .output()?;
+
+            #[cfg(target_os = "macos")]
+            let output = {
+                let af = match ip.address {
+                    IpAddr::V4(_) => "inet",
+                    IpAddr::V6(_) => "inet6",
+                };
+                Command::new("sudo")
+                    .args(["ifconfig", ifname, af, &addr_str, "alias"])
+                    .output()?
+            };
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                error!(log, "failed to install {}: {stderr}", ip.address);
+                return Err(std::io::Error::other(format!(
+                    "failed to install {}",
+                    ip.address
+                )));
+            }
+            info!(log, "added {} to system", ip.address);
+            Ok(())
+        }
     }
 
     /// Uninstall specific addresses (called by [`IpAllocation`] on drop).
@@ -321,59 +313,76 @@ impl LoopbackIpManager {
         }
 
         #[cfg(target_os = "illumos")]
-        let output = {
-            let v = match addr {
-                IpAddr::V4(_) => "v4",
-                IpAddr::V6(_) => "v6",
-            };
-            let mut ip_descr = format!("{v}{addr}");
-            ip_descr.retain(|c| c.is_alphanumeric());
-            let addr_obj = format!("{ifname}/{ip_descr}");
-            Command::new("pfexec")
-                .args(["ipadm", "delete-addr", &addr_obj])
-                .output()
-        };
+        {
+            let addr_obj = illumos_addr_obj(ifname, addr);
+            info!(log, "deleting addr object '{addr_obj}'");
+            match libnet::delete_ipaddr(&addr_obj) {
+                Ok(()) => info!(log, "removed {addr} from system"),
+                Err(e) => error!(log, "failed to remove {addr} from system: {e}"),
+            }
+            return;
+        }
 
-        #[cfg(target_os = "linux")]
-        let output = {
-            let mask = match addr {
-                IpAddr::V4(_) => 32,
-                IpAddr::V6(_) => 128,
+        #[cfg(not(target_os = "illumos"))]
+        {
+            #[cfg(target_os = "linux")]
+            let output = {
+                let mask = match addr {
+                    IpAddr::V4(_) => 32,
+                    IpAddr::V6(_) => 128,
+                };
+                let addr_str = format!("{addr}/{mask}");
+                Command::new("sudo")
+                    .args(["ip", "addr", "del", &addr_str, "dev", ifname])
+                    .output()
             };
-            let addr_str = format!("{addr}/{mask}");
-            Command::new("sudo")
-                .args(["ip", "addr", "del", &addr_str, "dev", ifname])
-                .output()
-        };
 
-        #[cfg(target_os = "macos")]
-        let output = {
-            let af = match addr {
-                IpAddr::V4(_) => "inet",
-                IpAddr::V6(_) => "inet6",
+            #[cfg(target_os = "macos")]
+            let output = {
+                let af = match addr {
+                    IpAddr::V4(_) => "inet",
+                    IpAddr::V6(_) => "inet6",
+                };
+                Command::new("sudo")
+                    .args(["ifconfig", ifname, af, &addr.to_string(), "-alias"])
+                    .output()
             };
-            Command::new("sudo")
-                .args(["ifconfig", ifname, af, &addr.to_string(), "-alias"])
-                .output()
-        };
 
-        match output {
-            Ok(output) => {
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
+            match output {
+                Ok(output) => {
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        error!(
+                            log,
+                            "failed to remove {addr} from system: {stderr}"
+                        );
+                        return;
+                    }
+                    info!(log, "removed {addr} from system");
+                }
+                Err(e) => {
                     error!(
                         log,
-                        "failed to remove {addr} from system: {stderr}"
+                        "failed to execute remove command for {addr}: {e}"
                     );
-                    return;
                 }
-                info!(log, "removed {addr} from system");
-            }
-            Err(e) => {
-                error!(log, "failed to execute remove command for {addr}: {e}");
             }
         }
     }
+}
+
+/// Builds the ipadm address-object name used by libnet on illumos.
+///
+/// Format: `<ifname>/<v4|v6><address-alphanumeric>`, e.g. `lo0/v412741​11`.
+#[cfg(target_os = "illumos")]
+fn illumos_addr_obj(ifname: &str, addr: IpAddr) -> String {
+    let v = match addr {
+        IpAddr::V4(_) => "v4",
+        IpAddr::V6(_) => "v6",
+    };
+    let mut descr = format!("{v}{addr}");
+    descr.retain(|c| c.is_alphanumeric());
+    format!("{ifname}/{descr}")
 }
 
 /// Returns true if the address is currently present on any interface.

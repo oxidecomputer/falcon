@@ -7,3 +7,7 @@ edition = "2021"
 libc.workspace = true
 network-interface.workspace = true
 slog.workspace = true
+
+[target.'cfg(target_os = "illumos")'.dependencies]
+libnet.workspace = true
+oxnet.workspace = true

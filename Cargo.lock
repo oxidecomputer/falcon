@@ -1175,7 +1175,9 @@ name = "loopback-ip-mgr"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "libnet",
  "network-interface",
+ "oxnet",
  "slog",
 ]
 
