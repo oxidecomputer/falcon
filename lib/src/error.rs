@@ -33,6 +33,8 @@ pub enum Error {
     LibnetRoute(#[from] libnet::route::Error),
     #[error("cli: {0}")]
     Cli(String),
+    #[error("exclusive iface used multiple times: {0}")]
+    ExternalNicReused(String),
     RonSpan(#[from] ron::error::SpannedError),
     Ron(#[from] ron::Error),
     TomL(#[from] toml::ser::Error),
