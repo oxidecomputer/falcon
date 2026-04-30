@@ -361,7 +361,10 @@ impl LoopbackIpManager {
             Ok(output) => {
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    error!(log, "failed to remove {addr} from system: {stderr}");
+                    error!(
+                        log,
+                        "failed to remove {addr} from system: {stderr}"
+                    );
                     return;
                 }
                 info!(log, "removed {addr} from system");
