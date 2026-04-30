@@ -185,7 +185,7 @@ impl LoopbackIpManager {
             libnet::create_ipaddr(&addr_obj, net)
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
             info!(log, "added {} to system", ip.address);
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(target_os = "illumos"))]
@@ -322,7 +322,6 @@ impl LoopbackIpManager {
                     error!(log, "failed to remove {addr} from system: {e}")
                 }
             }
-            return;
         }
 
         #[cfg(not(target_os = "illumos"))]
