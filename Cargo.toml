@@ -39,7 +39,7 @@ clap = { version = "4.6.1", features = ["color", "derive"] }
 tabwriter = { version = "1", features = ["ansi_formatting"] }
 colored = "3"
 rand = "0.10"
-camino = { version = "1.2.2", features = ["serde1"] }
+camino = { version = "1.2.3", features = ["serde1"] }
 reqwest = { version = "0.12.28", default-features = false }
 oxnet = { version = "0.1.6", default-features = false }
 indicatif = "0.18.4"
