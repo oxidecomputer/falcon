@@ -39,13 +39,13 @@ pub enum Error {
     Ron(#[from] ron::Error),
     TomL(#[from] toml::ser::Error),
     AddrParse(#[from] std::net::AddrParseError),
-    Propolis(#[from] propolis_client::Error),
+    Propolis(#[source] Box<propolis_client::Error>),
     PropolisTypes(
-        #[from] propolis_client::Error<propolis_client::types::Error>,
+        #[source] Box<propolis_client::Error<propolis_client::types::Error>>,
     ),
     IntParse(#[from] std::num::ParseIntError),
     TryIntParse(#[from] std::num::TryFromIntError),
-    WsError(#[from] tokio_tungstenite::tungstenite::Error),
+    WsError(#[source] Box<tokio_tungstenite::tungstenite::Error>),
     Anyhow(#[from] anyhow::Error),
     Uuid(#[from] uuid::Error),
     #[error("no ports available")]
@@ -53,4 +53,24 @@ pub enum Error {
     Zfs(String),
     #[error("default route has no interface")]
     NoInterfaceForDefaultRoute,
+}
+
+impl From<propolis_client::Error> for Error {
+    fn from(error: propolis_client::Error) -> Self {
+        Self::Propolis(Box::new(error))
+    }
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for Error {
+    fn from(error: tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::WsError(Box::new(error))
+    }
+}
+
+impl From<propolis_client::Error<propolis_client::types::Error>> for Error {
+    fn from(
+        error: propolis_client::Error<propolis_client::types::Error>,
+    ) -> Self {
+        Self::PropolisTypes(Box::new(error))
+    }
 }
