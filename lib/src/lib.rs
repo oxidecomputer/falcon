@@ -4,8 +4,6 @@
 
 // Copyright 2022 Oxide Computer Company
 
-#![allow(clippy::result_large_err)]
-
 #[cfg(test)]
 mod test;
 mod util;

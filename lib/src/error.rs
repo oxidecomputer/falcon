@@ -4,29 +4,22 @@
 
 // Copyright 2022 Oxide Computer Company
 
-use std::{ffi, io, str};
+use std::{io, str};
 use thiserror::Error;
 
 /// Error conditions that can be emitted by Falcon
 #[derive(Error, Debug)]
 #[error("{0}")]
 pub enum Error {
-    #[error("not implemented: {0}")]
-    NotImplemented(String),
     #[error("not found: {0}")]
     NotFound(String),
     IO(#[from] io::Error),
-    Zone(#[from] zone::ZoneError),
-    FFI(#[from] ffi::NulError),
     Utf8(#[from] str::Utf8Error),
     FUtf8(#[from] std::string::FromUtf8Error),
     #[error("exec: {0}")]
     Exec(String),
-    QueryError(#[from] smf::QueryError),
     #[error("path: {0}")]
     PathError(String),
-    #[error("wrap: {0}")]
-    Wrap(String),
     #[error("netadm: {0}")]
     Libnet(#[from] libnet::Error),
     #[error("libnet route error: {0}")]
@@ -37,40 +30,33 @@ pub enum Error {
     ExternalNicReused(String),
     RonSpan(#[from] ron::error::SpannedError),
     Ron(#[from] ron::Error),
-    TomL(#[from] toml::ser::Error),
     AddrParse(#[from] std::net::AddrParseError),
-    Propolis(#[source] Box<propolis_client::Error>),
-    PropolisTypes(
-        #[source] Box<propolis_client::Error<propolis_client::types::Error>>,
-    ),
+    PropolisTypes(Box<propolis_client::Error<propolis_client::types::Error>>),
     IntParse(#[from] std::num::ParseIntError),
-    TryIntParse(#[from] std::num::TryFromIntError),
-    WsError(#[source] Box<tokio_tungstenite::tungstenite::Error>),
+    WsError(Box<tokio_tungstenite::tungstenite::Error>),
     Anyhow(#[from] anyhow::Error),
     Uuid(#[from] uuid::Error),
-    #[error("no ports available")]
-    NoPorts,
     Zfs(String),
     #[error("default route has no interface")]
     NoInterfaceForDefaultRoute,
 }
 
-impl From<propolis_client::Error> for Error {
-    fn from(error: propolis_client::Error) -> Self {
-        Self::Propolis(Box::new(error))
+impl From<Box<tokio_tungstenite::tungstenite::Error>> for Error {
+    fn from(value: Box<tokio_tungstenite::tungstenite::Error>) -> Self {
+        Self::WsError(value)
     }
 }
 
 impl From<tokio_tungstenite::tungstenite::Error> for Error {
-    fn from(error: tokio_tungstenite::tungstenite::Error) -> Self {
-        Self::WsError(Box::new(error))
+    fn from(value: tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::WsError(Box::new(value))
     }
 }
 
 impl From<propolis_client::Error<propolis_client::types::Error>> for Error {
     fn from(
-        error: propolis_client::Error<propolis_client::types::Error>,
+        value: propolis_client::Error<propolis_client::types::Error>,
     ) -> Self {
-        Self::PropolisTypes(Box::new(error))
+        Self::PropolisTypes(Box::new(value))
     }
 }
