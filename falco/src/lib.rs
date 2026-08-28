@@ -80,11 +80,7 @@ pub fn time_sync(ntp_server: &str) -> Result<(), Error> {
         .unwrap();
     let ntp_duration =
         std::time::Duration::new(ntp_secs as u64, ntp_nsecs as u32);
-    let correction = if ntp_duration > now {
-        ntp_duration - now
-    } else {
-        now - ntp_duration
-    };
+    let correction = ntp_duration.abs_diff(now);
     let direction = if ntp_duration > now { "+" } else { "-" };
 
     tracing::info!(
@@ -101,9 +97,7 @@ const POOL_NAME: &str = "fpool";
 fn pool_exists() -> Result<bool, Error> {
     use std::process::Command;
 
-    let output = Command::new("zpool")
-        .args(["list", POOL_NAME])
-        .output()?;
+    let output = Command::new("zpool").args(["list", POOL_NAME]).output()?;
 
     Ok(output.status.success())
 }
@@ -139,9 +133,7 @@ fn get_available_disks() -> Result<Vec<DiskInfo>, Error> {
     }
 
     // Get disks currently in use by zpools
-    let output = Command::new("zpool")
-        .args(["status", "-P"])
-        .output()?;
+    let output = Command::new("zpool").args(["status", "-P"]).output()?;
     let zpool_output = String::from_utf8_lossy(&output.stdout);
 
     // Filter out disks that are in use
@@ -153,10 +145,13 @@ fn get_available_disks() -> Result<Vec<DiskInfo>, Error> {
     Ok(available)
 }
 
-fn select_disks(available: Vec<DiskInfo>, min_size: u64) -> Result<Vec<String>, Error> {
+fn select_disks(
+    available: Vec<DiskInfo>,
+    min_size: u64,
+) -> Result<Vec<String>, Error> {
     let mut disks = available;
     // Sort by size descending to use fewer, larger disks
-    disks.sort_by(|a, b| b.size.cmp(&a.size));
+    disks.sort_by_key(|a| std::cmp::Reverse(a.size));
 
     let mut selected = Vec::new();
     let mut total_size: u64 = 0;
@@ -184,7 +179,10 @@ pub fn init_pool(min_size: bytesize::ByteSize) -> Result<(), Error> {
     use std::process::Command;
 
     if pool_exists()? {
-        tracing::info!("pool '{}' already exists, skipping creation", POOL_NAME);
+        tracing::info!(
+            "pool '{}' already exists, skipping creation",
+            POOL_NAME
+        );
         return Ok(());
     }
 
@@ -209,9 +207,7 @@ pub fn init_pool(min_size: bytesize::ByteSize) -> Result<(), Error> {
     let dataset = format!("{}/falcon", POOL_NAME);
     tracing::info!(dataset, "creating zfs filesystem");
 
-    let output = Command::new("zfs")
-        .args(["create", &dataset])
-        .output()?;
+    let output = Command::new("zfs").args(["create", &dataset]).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

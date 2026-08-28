@@ -24,7 +24,10 @@ enum Commands {
 }
 
 fn main() {
-    tracing_subscriber::fmt().without_time().with_target(false).init();
+    tracing_subscriber::fmt()
+        .without_time()
+        .with_target(false)
+        .init();
     let cli = Cli::parse();
 
     match cli.command {

@@ -4,6 +4,8 @@
 
 // Copyright 2022 Oxide Computer Company
 
+#![allow(clippy::result_large_err)]
+
 #[cfg(test)]
 mod test;
 mod util;
@@ -333,7 +335,7 @@ impl Runner {
             "set propolis binary to {}",
             path.unwrap_or(format!(
                 "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
-                &self.falcon_dir
+                self.falcon_dir
             ))
         );
     }
@@ -1821,7 +1823,7 @@ pub(crate) async fn launch_vm(
         components: if let Some(components) = components {
             components
                 .iter()
-                .map(|(spec_key, comp)| (spec_key.clone(), comp.clone().into()))
+                .map(|(spec_key, comp)| (spec_key.clone(), comp.clone()))
                 .collect()
         } else {
             Default::default()
