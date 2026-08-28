@@ -26,7 +26,7 @@ use oxnet::{IpNet, Ipv4Net};
 use propolis::ensure_propolis_binary;
 pub use propolis_client::instance_spec::SmbiosType1Input;
 use propolis_client::instance_spec::{
-    Board, BootOrderEntry, BootSettings, Chipset, ComponentV0,
+    Board, BootOrderEntry, BootSettings, Chipset, Component,
     DlpiNetworkBackend, FileStorageBackend, I440Fx, InstanceMetadata,
     InstanceSpec, P9fs, PciPath, SerialPort, SerialPortNumber, SoftNpuP9,
     SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk, VirtioNetworkBackend,
@@ -185,7 +185,7 @@ pub struct Node {
     /// VNC port to use
     pub vnc_port: Option<u16>,
     /// Propolis components for instance spec
-    pub components: BTreeMap<SpecKey, ComponentV0>,
+    pub components: BTreeMap<SpecKey, Component>,
     /// SMBIOS Type 1 table information that gets injected into the guest
     pub smbios: Option<SmbiosType1Input>,
     /// Optional boot iso image
@@ -1007,21 +1007,21 @@ impl Node {
 
         self.components.insert(
             SpecKey::Name("com1".into()),
-            ComponentV0::SerialPort(SerialPort {
+            Component::SerialPort(SerialPort {
                 num: SerialPortNumber::Com1,
             }),
         );
 
         self.components.insert(
             SpecKey::Name("com2".into()),
-            ComponentV0::SerialPort(SerialPort {
+            Component::SerialPort(SerialPort {
                 num: SerialPortNumber::Com2,
             }),
         );
 
         self.components.insert(
             SpecKey::Name("com3".into()),
-            ComponentV0::SerialPort(SerialPort {
+            Component::SerialPort(SerialPort {
                 num: SerialPortNumber::Com3,
             }),
         );
@@ -1042,7 +1042,7 @@ impl Node {
             let iso_key = SpecKey::Name("boot_iso".to_string());
             self.components.insert(
                 iso_key.clone(),
-                ComponentV0::VirtioDisk(VirtioDisk {
+                Component::VirtioDisk(VirtioDisk {
                     backend_id: SpecKey::Name("boot_iso_backing".into()),
                     pci_path: PciPath::new(0, pci_index, 0).unwrap(),
                 }),
@@ -1050,7 +1050,7 @@ impl Node {
 
             self.components.insert(
                 SpecKey::Name("boot_iso_backing".to_string()),
-                ComponentV0::FileStorageBackend(FileStorageBackend {
+                Component::FileStorageBackend(FileStorageBackend {
                     path: bootiso.to_string(),
                     readonly: true,
                     block_size: 2048,
@@ -1060,7 +1060,7 @@ impl Node {
 
             self.components.insert(
                 SpecKey::Name("boot_iso_first".to_string()),
-                ComponentV0::BootSettings(BootSettings {
+                Component::BootSettings(BootSettings {
                     order: vec![
                         BootOrderEntry { id: iso_key },
                         BootOrderEntry { id: main_disk_key },
@@ -1074,7 +1074,7 @@ impl Node {
         for (i, m) in self.mounts.iter().enumerate() {
             self.components.insert(
                 SpecKey::Name(format!("fs{i}")),
-                ComponentV0::P9fs(P9fs {
+                Component::P9fs(P9fs {
                     source: m.source.to_string(),
                     target: m.destination.to_string(),
                     chunk_size: 65536, // XXX magic number?
@@ -1096,7 +1096,7 @@ impl Node {
         if softnpu_deployment {
             self.components.insert(
                 SpecKey::Name("softnpu-p9".into()),
-                ComponentV0::SoftNpuP9(SoftNpuP9 {
+                Component::SoftNpuP9(SoftNpuP9 {
                     pci_path: PciPath::new(0, pci_index, 0).unwrap(),
                 }),
             );
@@ -1105,7 +1105,7 @@ impl Node {
 
             self.components.insert(
                 SpecKey::Name("softnpu-pci-port".into()),
-                ComponentV0::SoftNpuPciPort(SoftNpuPciPort {
+                Component::SoftNpuPciPort(SoftNpuPciPort {
                     pci_path: PciPath::new(0, pci_index, 0).unwrap(),
                 }),
             );
@@ -1125,16 +1125,14 @@ impl Node {
                 EndpointKind::Viona(_) => {
                     self.components.insert(
                         SpecKey::Name(format!("net{viona_index}-backing")),
-                        ComponentV0::VirtioNetworkBackend(
-                            VirtioNetworkBackend {
-                                vnic_name: vnic_name.clone(),
-                            },
-                        ),
+                        Component::VirtioNetworkBackend(VirtioNetworkBackend {
+                            vnic_name: vnic_name.clone(),
+                        }),
                     );
 
                     self.components.insert(
                         SpecKey::Name(format!("net{viona_index}")),
-                        ComponentV0::VirtioNic(VirtioNic {
+                        Component::VirtioNic(VirtioNic {
                             backend_id: SpecKey::Name(format!(
                                 "net{viona_index}-backing"
                             )),
@@ -1155,14 +1153,14 @@ impl Node {
 
                     self.components.insert(
                         backend_id.clone(),
-                        ComponentV0::DlpiNetworkBackend(DlpiNetworkBackend {
+                        Component::DlpiNetworkBackend(DlpiNetworkBackend {
                             vnic_name: vnic_name.clone(),
                         }),
                     );
 
                     self.components.insert(
                         SpecKey::Name(format!("softnpu{softnpu_index}-port")),
-                        ComponentV0::SoftNpuPort(SoftNpuPort {
+                        Component::SoftNpuPort(SoftNpuPort {
                             link_name: format!("softnpu{softnpu_index}"),
                             backend_id: SpecKey::Name(backend_id.to_string()),
                         }),
@@ -1424,7 +1422,7 @@ impl Node {
         let key = SpecKey::Name("main_disk".to_string());
         self.components.insert(
             key.clone(),
-            ComponentV0::VirtioDisk(VirtioDisk {
+            Component::VirtioDisk(VirtioDisk {
                 backend_id: SpecKey::Name("main_disk_backing".into()),
                 pci_path: PciPath::new(0, 4, 0).unwrap(),
             }),
@@ -1432,7 +1430,7 @@ impl Node {
 
         self.components.insert(
             SpecKey::Name("main_disk_backing".to_string()),
-            ComponentV0::FileStorageBackend(FileStorageBackend {
+            Component::FileStorageBackend(FileStorageBackend {
                 path: backing,
                 readonly: false,
                 block_size: 512,
@@ -1728,7 +1726,7 @@ pub(crate) async fn launch_vm(
     id: &uuid::Uuid,
     node: &Node,
     falcon_dir: &String,
-    components: Option<&BTreeMap<SpecKey, ComponentV0>>,
+    components: Option<&BTreeMap<SpecKey, Component>>,
 ) -> Result<u16, Error> {
     info!(log, "{}: launching node", node.name);
     // launch propolis-server
@@ -1811,7 +1809,6 @@ pub(crate) async fn launch_vm(
         },
     };
 
-    //let spec = propolis_client::types::InstanceSpecV0 {
     let spec = InstanceSpec {
         board: Board {
             cpus: node.cores,
@@ -1824,7 +1821,7 @@ pub(crate) async fn launch_vm(
         components: if let Some(components) = components {
             components
                 .iter()
-                .map(|(spec_key, comp)| (spec_key.clone(), comp.clone()))
+                .map(|(spec_key, comp)| (spec_key.clone(), comp.clone().into()))
                 .collect()
         } else {
             Default::default()
@@ -1844,7 +1841,7 @@ pub(crate) async fn launch_vm(
     let mut retry_count = 0;
     let mut errors = HashMap::new();
     while retry_count < 30 {
-        match client.instance_ensure().body(&req).send().await {
+        match client.instance_ensure().body(req.clone()).send().await {
             Ok(_) => {
                 success = true;
                 break;
@@ -1866,7 +1863,7 @@ pub(crate) async fn launch_vm(
             "{}: instance ensure failed after {retry_count} retries", node.name
         );
         error!(log, "{}: instance ensure errors: {errors:#?}", node.name);
-        client.instance_ensure().body(&req).send().await?;
+        client.instance_ensure().body(req).send().await?;
     }
     info!(
         log,
