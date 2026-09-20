@@ -568,7 +568,7 @@ dependencies = [
  "humantime",
  "nix",
  "sntpc",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1227,7 +1227,7 @@ dependencies = [
  "smf",
  "syn 2.0.119",
  "tabwriter",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-tungstenite",
  "toml",
