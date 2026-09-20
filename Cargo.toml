@@ -48,7 +48,7 @@ reqwest = { version = "0.13.4", default-features = false }
 xz2 = "0.1.7"
 camino-tempfile = "1.4.1"
 cargo_toml = "0.22.3"
-quote = "1.0.45"
+quote = "1.0.47"
 prettyplease = "0.2"
 syn = "2.0"
 sha2 = "0.10.9"
