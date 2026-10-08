@@ -4,12 +4,14 @@ resolver = "2"
 default-members = [
     "lib",
     "ztest",
+    "falco",
 ]
 
 members = [
     "lib",
     "loopback-ip-mgr",
     "ztest",
+    "falco",
     "examples/solo",
     "examples/duo",
     "examples/duo-unit",
@@ -24,7 +26,7 @@ regex = "1.12"
 smf = "0.2"
 libnet = { git = "https://github.com/oxidecomputer/netadm-sys", branch = "main" }
 network-interface = { git = "https://github.com/oxidecomputer/network-interface", branch = "illumos" }
-uuid = { version = "1.22.0", features = [ "serde", "v4" ] }
+uuid = { version = "1.23.3", features = [ "serde", "v4" ] }
 serde = "1.0"
 ron = "0.12"
 slog = { version = "2.8", features = ["max_level_trace"] }
@@ -32,19 +34,19 @@ slog-term = "2.9"
 slog-async = "2.8"
 slog-envlogger = "2.2"
 toml = "0.9"
-propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "36f20be9bb4c3b362029237f5feb6377c982395f" }
+propolis-client = { git = "https://github.com/oxidecomputer/propolis", rev = "5e201ec4185ccb9182cc6ffcb09fadd9deee24ca" }
 libc = "0.2"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tokio-tungstenite = "0.21"
 futures = "0.3"
-clap = { version = "4.6.0", features = ["color", "derive"] }
+clap = { version = "4.6.1", features = ["color", "derive"] }
 tabwriter = { version = "1", features = ["ansi_formatting"] }
 colored = "3"
-rand = "0.8"
-camino = { version = "1.2.2", features = ["serde1"] }
-reqwest = { version = "0.12.28", default-features = false }
-oxnet = { version = "0.1.4", default-features = false }
+rand = "0.10"
+camino = { version = "1.2.3", features = ["serde1"] }
+oxnet = { version = "0.1.6", default-features = false }
 indicatif = "0.18.4"
+reqwest = { version = "0.13.4", default-features = false }
 xz2 = "0.1.7"
 camino-tempfile = "1.4.1"
 cargo_toml = "0.22.3"

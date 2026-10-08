@@ -2,8 +2,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-#![allow(clippy::result_large_err)]
-
 // Copyright 2022 Oxide Computer Company
 
 #[cfg(test)]
@@ -28,7 +26,7 @@ use oxnet::{IpNet, Ipv4Net};
 use propolis::ensure_propolis_binary;
 pub use propolis_client::instance_spec::SmbiosType1Input;
 use propolis_client::instance_spec::{
-    Board, BootOrderEntry, BootSettings, Chipset, ComponentV0,
+    Board, BootOrderEntry, BootSettings, Chipset, Component,
     DlpiNetworkBackend, FileStorageBackend, I440Fx, InstanceMetadata,
     InstanceSpec, P9fs, PciPath, SerialPort, SerialPortNumber, SoftNpuP9,
     SoftNpuPciPort, SoftNpuPort, SpecKey, VirtioDisk, VirtioNetworkBackend,
@@ -38,8 +36,8 @@ use ron::ser::{to_string_pretty, PrettyConfig};
 use serde::{Deserialize, Serialize};
 use slog::Drain;
 use slog::{debug, error, info, warn, Logger};
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fs::{self, OpenOptions};
 use std::io::BufWriter;
@@ -187,7 +185,7 @@ pub struct Node {
     /// VNC port to use
     pub vnc_port: Option<u16>,
     /// Propolis components for instance spec
-    pub components: BTreeMap<SpecKey, ComponentV0>,
+    pub components: BTreeMap<SpecKey, Component>,
     /// SMBIOS Type 1 table information that gets injected into the guest
     pub smbios: Option<SmbiosType1Input>,
     /// Optional boot iso image
@@ -235,6 +233,7 @@ pub struct Link {
 pub struct ExtLink {
     pub endpoint: Endpoint,
     pub host_ifx: String,
+    pub exclusive: bool,
 }
 
 /// Endpoint kind determines what type of device will be chosen to underpin a
@@ -334,7 +333,7 @@ impl Runner {
             "set propolis binary to {}",
             path.unwrap_or(format!(
                 "{}/{DEFAULT_PROPOLIS_RELATIVE_PATH}",
-                &self.falcon_dir
+                self.falcon_dir
             ))
         );
     }
@@ -519,17 +518,37 @@ impl Runner {
         self.deployment.nodes[n.index].smbios = Some(smbios);
     }
 
-    /// Create an external link attached to `host_ifx`.
+    /// Create an external link attached to `host_ifx` via a new VNIC.
     pub fn ext_link(&mut self, host_ifx: impl AsRef<str>, n: NodeRef) {
+        self.ext_link_common(host_ifx, n, false);
+    }
+
+    /// Create an external link, consuming the link `host_ifx`.
+    pub fn ext_link_exclusive(
+        &mut self,
+        host_ifx: impl AsRef<str>,
+        n: NodeRef,
+    ) {
+        self.ext_link_common(host_ifx, n, true);
+    }
+
+    fn ext_link_common(
+        &mut self,
+        host_ifx: impl AsRef<str>,
+        n: NodeRef,
+        exclusive: bool,
+    ) {
         let endpoint = Endpoint {
             node: n,
             index: self.deployment.nodes[n.index].radix,
             kind: EndpointKind::Viona(None),
         };
         let host_ifx = host_ifx.as_ref().into();
-        self.deployment
-            .ext_links
-            .push(ExtLink { endpoint, host_ifx });
+        self.deployment.ext_links.push(ExtLink {
+            endpoint,
+            host_ifx,
+            exclusive,
+        });
         self.deployment.nodes[n.index].radix += 1;
     }
 
@@ -635,6 +654,26 @@ impl Runner {
                 &self.log,
             )
             .await?;
+        }
+
+        // validate that no external links are being jointly specified
+        // as exclusive and as parents of vnics.
+        let mut link_is_exclusive = HashMap::new();
+        for link in self.deployment.ext_links.iter() {
+            let entry = link_is_exclusive.entry(link.host_ifx.clone());
+
+            match entry {
+                Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(link.exclusive);
+                }
+                Entry::Occupied(occupied_entry) => {
+                    if link.exclusive || *occupied_entry.get() {
+                        return Err(Error::ExternalNicReused(
+                            link.host_ifx.clone(),
+                        ));
+                    }
+                }
+            }
         }
 
         ensure_ovmf_fd(falcon_dir, &self.log).await?;
@@ -875,11 +914,25 @@ impl Deployment {
 
     async fn nodes_preflight(&mut self, log: &Logger) -> Result<(), Error> {
         let mut endpoints = Vec::new();
+
         for l in &self.links {
-            endpoints.extend_from_slice(&l.endpoints);
+            for e in &l.endpoints {
+                endpoints.push(NodeEndpoint {
+                    vnic_name: self.vnic_link_name(e),
+                    endpoint: e.clone(),
+                });
+            }
         }
         for l in &self.ext_links {
-            endpoints.push(l.endpoint.clone());
+            let vnic_name = if l.exclusive {
+                l.host_ifx.clone()
+            } else {
+                self.vnic_link_name(&l.endpoint)
+            };
+            endpoints.push(NodeEndpoint {
+                vnic_name,
+                endpoint: l.endpoint.clone(),
+            })
         }
 
         let mut node_endpoints_map: HashMap<String, Vec<NodeEndpoint>> =
@@ -889,11 +942,8 @@ impl Deployment {
         for n in self.nodes.iter() {
             let node_endpoints: Vec<NodeEndpoint> = endpoints
                 .iter()
-                .filter(|e| self.nodes[e.node.index].name == n.name)
-                .map(|e| NodeEndpoint {
-                    vnic_name: self.vnic_link_name(e),
-                    endpoint: e.clone(),
-                })
+                .filter(|e| self.nodes[e.endpoint.node.index].name == n.name)
+                .cloned()
                 .collect();
 
             let has_softnpu = node_endpoints.iter().any(|ne| {
@@ -934,6 +984,7 @@ impl Drop for Runner {
     }
 }
 
+#[derive(Clone)]
 struct NodeEndpoint {
     vnic_name: String,
     endpoint: Endpoint,
@@ -956,21 +1007,21 @@ impl Node {
 
         self.components.insert(
             SpecKey::Name("com1".into()),
-            ComponentV0::SerialPort(SerialPort {
+            Component::SerialPort(SerialPort {
                 num: SerialPortNumber::Com1,
             }),
         );
 
         self.components.insert(
             SpecKey::Name("com2".into()),
-            ComponentV0::SerialPort(SerialPort {
+            Component::SerialPort(SerialPort {
                 num: SerialPortNumber::Com2,
             }),
         );
 
         self.components.insert(
             SpecKey::Name("com3".into()),
-            ComponentV0::SerialPort(SerialPort {
+            Component::SerialPort(SerialPort {
                 num: SerialPortNumber::Com3,
             }),
         );
@@ -991,7 +1042,7 @@ impl Node {
             let iso_key = SpecKey::Name("boot_iso".to_string());
             self.components.insert(
                 iso_key.clone(),
-                ComponentV0::VirtioDisk(VirtioDisk {
+                Component::VirtioDisk(VirtioDisk {
                     backend_id: SpecKey::Name("boot_iso_backing".into()),
                     pci_path: PciPath::new(0, pci_index, 0).unwrap(),
                 }),
@@ -999,7 +1050,7 @@ impl Node {
 
             self.components.insert(
                 SpecKey::Name("boot_iso_backing".to_string()),
-                ComponentV0::FileStorageBackend(FileStorageBackend {
+                Component::FileStorageBackend(FileStorageBackend {
                     path: bootiso.to_string(),
                     readonly: true,
                     block_size: 2048,
@@ -1009,7 +1060,7 @@ impl Node {
 
             self.components.insert(
                 SpecKey::Name("boot_iso_first".to_string()),
-                ComponentV0::BootSettings(BootSettings {
+                Component::BootSettings(BootSettings {
                     order: vec![
                         BootOrderEntry { id: iso_key },
                         BootOrderEntry { id: main_disk_key },
@@ -1023,7 +1074,7 @@ impl Node {
         for (i, m) in self.mounts.iter().enumerate() {
             self.components.insert(
                 SpecKey::Name(format!("fs{i}")),
-                ComponentV0::P9fs(P9fs {
+                Component::P9fs(P9fs {
                     source: m.source.to_string(),
                     target: m.destination.to_string(),
                     chunk_size: 65536, // XXX magic number?
@@ -1045,7 +1096,7 @@ impl Node {
         if softnpu_deployment {
             self.components.insert(
                 SpecKey::Name("softnpu-p9".into()),
-                ComponentV0::SoftNpuP9(SoftNpuP9 {
+                Component::SoftNpuP9(SoftNpuP9 {
                     pci_path: PciPath::new(0, pci_index, 0).unwrap(),
                 }),
             );
@@ -1054,7 +1105,7 @@ impl Node {
 
             self.components.insert(
                 SpecKey::Name("softnpu-pci-port".into()),
-                ComponentV0::SoftNpuPciPort(SoftNpuPciPort {
+                Component::SoftNpuPciPort(SoftNpuPciPort {
                     pci_path: PciPath::new(0, pci_index, 0).unwrap(),
                 }),
             );
@@ -1074,16 +1125,14 @@ impl Node {
                 EndpointKind::Viona(_) => {
                     self.components.insert(
                         SpecKey::Name(format!("net{viona_index}-backing")),
-                        ComponentV0::VirtioNetworkBackend(
-                            VirtioNetworkBackend {
-                                vnic_name: vnic_name.clone(),
-                            },
-                        ),
+                        Component::VirtioNetworkBackend(VirtioNetworkBackend {
+                            vnic_name: vnic_name.clone(),
+                        }),
                     );
 
                     self.components.insert(
                         SpecKey::Name(format!("net{viona_index}")),
-                        ComponentV0::VirtioNic(VirtioNic {
+                        Component::VirtioNic(VirtioNic {
                             backend_id: SpecKey::Name(format!(
                                 "net{viona_index}-backing"
                             )),
@@ -1104,14 +1153,14 @@ impl Node {
 
                     self.components.insert(
                         backend_id.clone(),
-                        ComponentV0::DlpiNetworkBackend(DlpiNetworkBackend {
+                        Component::DlpiNetworkBackend(DlpiNetworkBackend {
                             vnic_name: vnic_name.clone(),
                         }),
                     );
 
                     self.components.insert(
                         SpecKey::Name(format!("softnpu{softnpu_index}-port")),
-                        ComponentV0::SoftNpuPort(SoftNpuPort {
+                        Component::SoftNpuPort(SoftNpuPort {
                             link_name: format!("softnpu{softnpu_index}"),
                             backend_id: SpecKey::Name(backend_id.to_string()),
                         }),
@@ -1373,7 +1422,7 @@ impl Node {
         let key = SpecKey::Name("main_disk".to_string());
         self.components.insert(
             key.clone(),
-            ComponentV0::VirtioDisk(VirtioDisk {
+            Component::VirtioDisk(VirtioDisk {
                 backend_id: SpecKey::Name("main_disk_backing".into()),
                 pci_path: PciPath::new(0, 4, 0).unwrap(),
             }),
@@ -1381,7 +1430,7 @@ impl Node {
 
         self.components.insert(
             SpecKey::Name("main_disk_backing".to_string()),
-            ComponentV0::FileStorageBackend(FileStorageBackend {
+            Component::FileStorageBackend(FileStorageBackend {
                 path: backing,
                 readonly: false,
                 block_size: 512,
@@ -1628,6 +1677,10 @@ impl Link {
 
 impl ExtLink {
     fn create(&self, r: &Runner) -> Result<(), Error> {
+        if self.exclusive {
+            return Ok(());
+        }
+
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         let host_ifx = libnet::LinkHandle::Name(self.host_ifx.clone());
@@ -1654,6 +1707,10 @@ impl ExtLink {
     }
 
     fn destroy(&self, r: &Runner) -> Result<(), Error> {
+        if self.exclusive {
+            return Ok(());
+        }
+
         let vnic_name = r.deployment.vnic_link_name(&self.endpoint);
         let vnic = libnet::LinkHandle::Name(vnic_name.clone());
         info!(r.log, "destroying external link {}", &vnic_name);
@@ -1669,7 +1726,7 @@ pub(crate) async fn launch_vm(
     id: &uuid::Uuid,
     node: &Node,
     falcon_dir: &String,
-    components: Option<&BTreeMap<SpecKey, ComponentV0>>,
+    components: Option<&BTreeMap<SpecKey, Component>>,
 ) -> Result<u16, Error> {
     info!(log, "{}: launching node", node.name);
     // launch propolis-server
@@ -1752,7 +1809,6 @@ pub(crate) async fn launch_vm(
         },
     };
 
-    //let spec = propolis_client::types::InstanceSpecV0 {
     let spec = InstanceSpec {
         board: Board {
             cpus: node.cores,
@@ -1780,27 +1836,41 @@ pub(crate) async fn launch_vm(
     };
 
     // we just launched the instance, so wait for it to become ready
+    info!(log, "{}: instance ensure", node.name);
     let mut success = false;
-    for _ in 0..30 {
-        info!(log, "{}: instance ensure", node.name);
-        match client.instance_ensure().body(&req).send().await {
+    let mut retry_count = 0;
+    let mut errors = HashMap::new();
+    while retry_count < 30 {
+        match client.instance_ensure().body(req.clone()).send().await {
             Ok(_) => {
                 success = true;
                 break;
             }
             Err(e) => {
-                warn!(
-                    log,
-                    "{}: instance ensure error: {e}, retry in 1 second",
-                    node.name
-                );
+                errors
+                    .entry(e.to_string())
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                retry_count += 1;
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
         }
     }
     if !success {
-        client.instance_ensure().body(&req).send().await?;
+        error!(
+            log,
+            "{}: instance ensure failed after {retry_count} retries", node.name
+        );
+        error!(log, "{}: instance ensure errors: {errors:#?}", node.name);
+        client.instance_ensure().body(req).send().await?;
+    }
+    info!(
+        log,
+        "{}: instance ensure completed after {retry_count} retries", node.name
+    );
+    if !errors.is_empty() {
+        warn!(log, "{}: instance ensure errors: {errors:#?}", node.name);
     }
 
     info!(log, "{}: instance run", node.name);
@@ -1817,7 +1887,19 @@ pub(crate) async fn launch_vm(
 pub(crate) fn dataset() -> String {
     match std::env::var("FALCON_DATASET") {
         Ok(s) if !s.is_empty() => s,
-        _ => "rpool/falcon".to_string(),
+        _ => {
+            // Check if fpool/falcon exists
+            if std::process::Command::new("zfs")
+                .args(["list", "fpool/falcon"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                "fpool/falcon".to_string()
+            } else {
+                "rpool/falcon".to_string()
+            }
+        }
     }
 }
 

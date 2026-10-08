@@ -353,6 +353,7 @@ impl ZoneConfig {
             .set_path(zfs.path_for(name))
             .set_autoboot(true)
             .set_brand(brand)
+            .set_limitpriv(["default".to_string(), "sys_dl_config".to_string()])
             .set_ip_type(IpType::Exclusive);
         Self {
             name: name.into(),

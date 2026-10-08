@@ -63,18 +63,18 @@ impl SerialCommander {
         async fn get_serial(
             addr: &SocketAddr,
             log: &Logger,
-        ) -> Result<InstanceSerialConsoleHelper, WSError> {
+        ) -> Result<InstanceSerialConsoleHelper, Box<WSError>> {
             // `InstanceSerialConsoleHelper` is a bit more industrial-strength
             // than strictly needed here - it exists in part to paper over
             // migration of the instance whose serial it's connceted to! Using
             // it here keeps us working in terms of `propolis_client` and
             // the same primitives as Nexus.
-            InstanceSerialConsoleHelper::new(
+            Ok(InstanceSerialConsoleHelper::new(
                 *addr,
                 WSClientOffset::MostRecent(0),
                 Some(log.clone()),
             )
-            .await
+            .await?)
         }
 
         self.state = State::Connecting;
