@@ -284,18 +284,14 @@ impl Zfs {
         Ok(())
     }
 
-    pub fn copy_bin_to_zone(&self, name: &str, bin: &str) -> Result<()> {
-        let profile = if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        };
-        let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => format!("target/{}/{}", profile, bin),
-            path => format!("{}target/{}/{}", path, profile, bin),
-        };
+    pub fn copy_bin_to_zone(
+        &self,
+        name: &str,
+        bin: &str,
+        from: &str,
+    ) -> Result<()> {
         let to = format!("opt/{}", bin);
-        self.copy_to_zone(name, &from, &to)
+        self.copy_to_zone(name, from, &to)
     }
 
     pub fn copy_workspace_to_zone(
@@ -304,11 +300,7 @@ impl Zfs {
         from: &str,
         to: &str,
     ) -> Result<()> {
-        let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => from.into(),
-            path => format!("{}{}", path, from),
-        };
-        self.copy_to_zone(name, &from, to)
+        self.copy_to_zone(name, from, to)
     }
 
     pub fn copy_workspace_to_zone_recursive(
@@ -317,11 +309,7 @@ impl Zfs {
         from: &str,
         to: &str,
     ) -> Result<()> {
-        let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => from.into(),
-            path => format!("{}{}", path, from),
-        };
-        self.copy_to_zone_recursive(name, &from, to)
+        self.copy_to_zone_recursive(name, from, to)
     }
 }
 
