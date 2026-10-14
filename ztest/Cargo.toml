@@ -9,3 +9,4 @@ zone = { git = "https://github.com/oxidecomputer/zone" }
 libnet.workspace = true
 anyhow.workspace = true
 oxnet.workspace = true
+cargo_metadata.workspace = true
