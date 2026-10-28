@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use cargo_metadata::{Metadata, MetadataCommand};
 use libnet::{
     connect_simnet_peers, create_ipaddr, create_simnet_link, create_vnic_link,
     delete_route, enable_v6_link_local, ensure_route_present, get_ipaddr_info,
@@ -290,10 +291,9 @@ impl Zfs {
         } else {
             "release"
         };
-        let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => format!("target/{}/{}", profile, bin),
-            path => format!("{}target/{}/{}", path, profile, bin),
-        };
+
+        let target = workspace_metadata()?.target_directory;
+        let from = format!("{target}/{profile}/{bin}");
         let to = format!("opt/{}", bin);
         self.copy_to_zone(name, &from, &to)
     }
@@ -304,10 +304,8 @@ impl Zfs {
         from: &str,
         to: &str,
     ) -> Result<()> {
-        let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => from.into(),
-            path => format!("{}{}", path, from),
-        };
+        let root = workspace_metadata()?.workspace_root;
+        let from = format!("{root}/{from}");
         self.copy_to_zone(name, &from, to)
     }
 
@@ -317,12 +315,14 @@ impl Zfs {
         from: &str,
         to: &str,
     ) -> Result<()> {
-        let from = match env!("CARGO_WORKSPACE_DIR") {
-            "" => from.into(),
-            path => format!("{}{}", path, from),
-        };
+        let root = workspace_metadata()?.workspace_root;
+        let from = format!("{root}/{from}");
         self.copy_to_zone_recursive(name, &from, to)
     }
+}
+
+fn workspace_metadata() -> Result<Metadata> {
+    Ok(MetadataCommand::new().no_deps().exec()?)
 }
 
 impl Drop for Zfs {
