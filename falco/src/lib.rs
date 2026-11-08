@@ -175,6 +175,25 @@ fn select_disks(
     Ok(selected)
 }
 
+/// Falcon pools hold scratch VM disks, so trade crash durability for write
+/// performance. Set on the pool's root dataset so every dataset inherits it.
+fn disable_sync() -> Result<(), Error> {
+    use std::process::Command;
+
+    tracing::info!(pool = POOL_NAME, "setting sync=disabled");
+
+    let output = Command::new("zfs")
+        .args(["set", "sync=disabled", POOL_NAME])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::Command(format!("zfs set: {}", stderr.trim())));
+    }
+
+    Ok(())
+}
+
 pub fn init_pool(min_size: bytesize::ByteSize) -> Result<(), Error> {
     use std::process::Command;
 
@@ -183,7 +202,8 @@ pub fn init_pool(min_size: bytesize::ByteSize) -> Result<(), Error> {
             "pool '{}' already exists, skipping creation",
             POOL_NAME
         );
-        return Ok(());
+        // Bring pools created before sync was disabled up to date.
+        return disable_sync();
     }
 
     tracing::info!(%min_size, "finding available disks");
@@ -203,6 +223,8 @@ pub fn init_pool(min_size: bytesize::ByteSize) -> Result<(), Error> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(Error::Command(format!("zpool create: {}", stderr.trim())));
     }
+
+    disable_sync()?;
 
     let dataset = format!("{}/falcon", POOL_NAME);
     tracing::info!(dataset, "creating zfs filesystem");
