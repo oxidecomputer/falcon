@@ -5,33 +5,49 @@ use std::fs;
 use std::io;
 use std::time::Duration;
 
-const OVMF_URL: &str =
-    "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/OVMF_CODE.fd";
-const OVMF_DIGEST_URL: &str =
-    "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/OVMF_CODE.fd.sha256.txt";
+use crate::imgsrv::AssetSource;
+
+const OVMF: &str = "OVMF_CODE.fd";
+const OVMF_DIGEST: &str = "OVMF_CODE.fd.sha256.txt";
 
 pub(crate) async fn ensure_ovmf_fd(
     falcon_dir: &str,
+    source: &AssetSource,
     log: &Logger,
 ) -> Result<()> {
-    let path = format!("{falcon_dir}/bin/OVMF_CODE.fd");
+    ensure_ovmf_fd_impl(falcon_dir, source, log)
+        .await
+        .map_err(|e| source.annotate(e))
+}
+
+async fn ensure_ovmf_fd_impl(
+    falcon_dir: &str,
+    source: &AssetSource,
+    log: &Logger,
+) -> Result<()> {
+    let path = format!("{falcon_dir}/bin/{OVMF}");
     let Some(local_digest) = get_downloaded_ovmf_digest(&path)? else {
         info!(log, "ovmf fd not found");
-        return download_ovmf(&path, log).await;
+        return download_ovmf(&path, source, log).await;
     };
-    let remote_digest = get_expected_ovmf_digest(log).await?;
+    let remote_digest = get_expected_ovmf_digest(source, log).await?;
     if local_digest != remote_digest {
         info!(log,
             "ovmf digest '{local_digest}' does not match expected '{remote_digest}'"
         );
-        return download_ovmf(&path, log).await;
+        return download_ovmf(&path, source, log).await;
     }
     Ok(())
 }
 
-async fn download_ovmf(path: &str, log: &Logger) -> Result<()> {
-    info!(log, "downloading ovmf");
-    crate::download_large_file(OVMF_URL, path, log).await?;
+async fn download_ovmf(
+    path: &str,
+    source: &AssetSource,
+    log: &Logger,
+) -> Result<()> {
+    let url = source.asset_url(OVMF);
+    info!(log, "downloading ovmf from {url}");
+    crate::download_large_file(&url, path, log).await?;
     Ok(())
 }
 
@@ -47,23 +63,27 @@ fn get_downloaded_ovmf_digest(path: &str) -> Result<Option<String>> {
     Ok(Some(hash))
 }
 
-async fn get_expected_ovmf_digest(log: &Logger) -> Result<String> {
+async fn get_expected_ovmf_digest(
+    source: &AssetSource,
+    log: &Logger,
+) -> Result<String> {
+    let url = source.asset_url(OVMF_DIGEST);
     for _ in 0..9 {
-        match get_expected_ovmf_digest_impl().await {
+        match get_expected_ovmf_digest_impl(&url).await {
             Ok(digest) => return Ok(digest),
             Err(e) => warn!(log, "{e}: retrying in 1 second"),
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    get_expected_ovmf_digest_impl().await
+    get_expected_ovmf_digest_impl(&url).await
 }
 
-async fn get_expected_ovmf_digest_impl() -> Result<String> {
+async fn get_expected_ovmf_digest_impl(url: &str) -> Result<String> {
     let client = reqwest::ClientBuilder::new()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(30))
         .build()?;
-    let response = client.get(OVMF_DIGEST_URL).send().await?;
+    let response = client.get(url).send().await?.error_for_status()?;
     let text = response.text().await?;
     Ok(text.trim().to_owned())
 }

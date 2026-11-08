@@ -74,6 +74,14 @@ console use `ctl-q`.
 pfexec ./target/debug/duo destroy
 ```
 
+### Faster downloads with an image server
+
+Falcon downloads base images, OVMF and propolis-server on first use. Run
+[`falcon-img`](falcon-img) on a host near your falcon machines and make the
+name `falcon-img` resolve to it. Falcon discovers the server automatically and
+downloads through its cache. It also works in air-gapped environments. Use
+`--no-img-discovery` to bypass it.
+
 ### Learn More
 
 - The primary reference documentation is in the [wiki](https://github.com/oxidecomputer/falcon/wiki/Reference).

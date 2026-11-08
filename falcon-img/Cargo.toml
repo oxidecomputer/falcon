@@ -1,0 +1,27 @@
+[package]
+name = "falcon-img"
+version = "0.1.0"
+edition = "2021"
+description = "Caching image server for falcon topologies"
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+clap.workspace = true
+futures.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+reqwest = { workspace = true, features = ["rustls", "stream"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+slog.workspace = true
+slog-async.workspace = true
+slog-envlogger.workspace = true
+slog-term.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+camino-tempfile.workspace = true

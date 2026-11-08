@@ -10,6 +10,7 @@ mod util;
 
 pub mod cli;
 pub mod error;
+pub mod imgsrv;
 pub mod ovmf;
 pub mod propolis;
 pub mod serial;
@@ -20,6 +21,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use error::Error;
 use futures::future::join_all;
 use futures::StreamExt;
+use imgsrv::{Assets, ImgServerConfig};
 use indicatif::{ProgressBar, ProgressStyle};
 use ovmf::ensure_ovmf_fd;
 use oxnet::{IpNet, Ipv4Net};
@@ -118,6 +120,9 @@ pub struct Runner {
     ///
     /// This directory is created by falcon and stores configuration.
     falcon_dir: String,
+
+    /// How to find an image server to download assets from.
+    img_server: ImgServerConfig,
 }
 
 /// A Deployment is the top level Falcon object. It contains a set of nodes and
@@ -308,7 +313,25 @@ impl Runner {
             custom_propolis_binary: None,
             dataset: dataset(),
             falcon_dir: DEFAULT_FALCON_DIR.to_string(),
+            img_server: ImgServerConfig::from_env(),
         }
+    }
+
+    /// Use the given image server (`host` or `host:port`) instead of
+    /// discovering one at [`imgsrv::DEFAULT_IMG_SERVER`]. Failing to reach an
+    /// explicitly set server is an error. `None` restores the default.
+    ///
+    /// Defaults to the value of [`imgsrv::IMG_SERVER_ENV`].
+    pub fn set_img_server(&mut self, server: Option<String>) {
+        self.img_server.server = server;
+    }
+
+    /// Enable or disable image server discovery. When disabled, assets are
+    /// always downloaded from their upstream sources.
+    ///
+    /// Defaults to enabled unless [`imgsrv::NO_IMG_DISCOVERY_ENV`] is set.
+    pub fn set_img_discovery(&mut self, enabled: bool) {
+        self.img_server.discovery = enabled;
     }
 
     pub fn set_falcon_dir(&mut self, dir: Option<String>) {
@@ -643,6 +666,7 @@ impl Runner {
 
         let falcon_dir = &self.get_falcon_dir();
         let propolis_binary = &self.get_propolis_binary();
+        let assets = Assets::new(self.img_server.clone(), self.log.clone());
 
         // We need to ensure the propolis-server binary is present and valid unless
         // the user has explicitly pointed to a binary, then they are responsible.
@@ -651,6 +675,7 @@ impl Runner {
                 // Tied to cargo dependency, see build.rs for details.
                 PROPOLIS_REV,
                 propolis_binary,
+                assets.source().await?,
                 &self.log,
             )
             .await?;
@@ -676,7 +701,7 @@ impl Runner {
             }
         }
 
-        ensure_ovmf_fd(falcon_dir, &self.log).await?;
+        ensure_ovmf_fd(falcon_dir, assets.source().await?, &self.log).await?;
         // Verify all required executables are usable.
         if let Err(e) = Command::new(propolis_binary).args(["-V"]).output() {
             error!(
@@ -698,7 +723,7 @@ impl Runner {
         topo_path.push("topology.ron");
         fs::write(&topo_path, out)?;
 
-        self.deployment.nodes_preflight(&self.log).await?;
+        self.deployment.nodes_preflight(&self.log, &assets).await?;
 
         Ok(())
     }
@@ -912,7 +937,11 @@ impl Deployment {
         )
     }
 
-    async fn nodes_preflight(&mut self, log: &Logger) -> Result<(), Error> {
+    async fn nodes_preflight(
+        &mut self,
+        log: &Logger,
+        assets: &Assets,
+    ) -> Result<(), Error> {
         let mut endpoints = Vec::new();
 
         for l in &self.links {
@@ -958,6 +987,7 @@ impl Deployment {
         for n in self.nodes.iter_mut() {
             n.preflight(
                 log,
+                assets,
                 &self.name,
                 &node_endpoints_map[&n.name],
                 softnpu_deployment,
@@ -994,11 +1024,12 @@ impl Node {
     async fn preflight(
         &mut self,
         log: &Logger,
+        assets: &Assets,
         deployment_name: &str,
         node_endpoints: &[NodeEndpoint],
         softnpu_deployment: bool,
     ) -> Result<(), Error> {
-        self.try_ensure_base_image(log).await?;
+        self.try_ensure_base_image(log, assets).await?;
 
         // Propolis supports COM1 to COM4, so ensure those devices are present.
         // Note COM4 will be added implicitly due to the presence of a
@@ -1174,7 +1205,11 @@ impl Node {
         Ok(())
     }
 
-    async fn try_ensure_base_image(&self, log: &Logger) -> Result<(), Error> {
+    async fn try_ensure_base_image(
+        &self,
+        log: &Logger,
+        assets: &Assets,
+    ) -> Result<(), Error> {
         match Command::new(ZFS_BIN)
             .args([
                 "list",
@@ -1191,17 +1226,26 @@ impl Node {
                     "base image for {} does not exist, attempting to install",
                     self.image
                 );
-                self.try_install_base_image(log).await
+                self.try_install_base_image(log, assets).await
             }
         }
     }
 
-    async fn try_install_base_image(&self, log: &Logger) -> Result<(), Error> {
+    async fn try_install_base_image(
+        &self,
+        log: &Logger,
+        assets: &Assets,
+    ) -> Result<(), Error> {
         let iname = format!("{}_0.raw.xz", self.image);
         let path = format!("/tmp/{iname}");
         let extracted = path.strip_suffix(".xz").unwrap();
-        self.try_download_base_image(log, iname.as_str(), path.as_str())
-            .await?;
+        self.try_download_base_image(
+            log,
+            assets,
+            iname.as_str(),
+            path.as_str(),
+        )
+        .await?;
         let fsize = Self::try_extract_image(log, path.as_str(), extracted)?;
         self.try_create_zfs_volume_for_image(log, fsize, extracted)?;
         Ok(())
@@ -1311,6 +1355,7 @@ impl Node {
     async fn try_download_base_image(
         &self,
         log: &Logger,
+        assets: &Assets,
         iname: &str,
         path: &str,
     ) -> Result<(), Error> {
@@ -1318,12 +1363,13 @@ impl Node {
             info!(log, "image already downloaded: {path}");
             return Ok(());
         }
-        let url = format!(
-            "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/{iname}"
-        );
+        let source = assets.source().await?;
+        let url = source.asset_url(iname);
         info!(log, "trying to download {url}");
 
-        download_large_file(url.as_str(), path, log).await?;
+        download_large_file(url.as_str(), path, log)
+            .await
+            .map_err(|e| source.annotate(e))?;
         Ok(())
     }
 
