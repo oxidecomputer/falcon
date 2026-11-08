@@ -22,6 +22,9 @@ banner "check"
 cargo fmt --all -- --check
 cargo clippy --all -- --deny warnings
 
+banner "test"
+cargo test -p falcon-img
+
 #
 # TODO 
 # tbe following will not work unless we run on a bare metal instance, which is

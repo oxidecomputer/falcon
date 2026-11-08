@@ -1,0 +1,32 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# Copyright 2026 Oxide Computer Company
+
+[Unit]
+Description=falcon caching image server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+# Overrides go in /etc/default/falcon-img, e.g. FALCON_IMG_OFFLINE=true.
+# FALCON_IMG_LISTEN must stay on port 7780 for falcon to discover it by
+# default.
+Environment=RUST_LOG=info
+Environment=FALCON_IMG_DIR=/var/falcon-img
+Environment=FALCON_IMG_LISTEN=[::]:7780
+EnvironmentFile=-/etc/default/falcon-img
+ExecStart=/opt/falcon-img/bin/falcon-img serve
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/falcon-img
+
+[Install]
+WantedBy=multi-user.target

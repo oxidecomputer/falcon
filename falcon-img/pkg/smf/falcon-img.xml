@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+  Copyright 2026 Oxide Computer Company
+-->
+<service_bundle type="manifest" name="falcon-img">
+  <service name="oxide/falcon-img" type="service" version="1">
+    <create_default_instance enabled="false" />
+    <single_instance />
+
+    <dependency name="network" grouping="require_all" restart_on="none"
+      type="service">
+      <service_fmri value="svc:/milestone/network:default" />
+    </dependency>
+    <dependency name="name-services" grouping="optional_all"
+      restart_on="none" type="service">
+      <service_fmri value="svc:/milestone/name-services:default" />
+    </dependency>
+    <dependency name="filesystem" grouping="require_all" restart_on="none"
+      type="service">
+      <service_fmri value="svc:/system/filesystem/local:default" />
+    </dependency>
+
+    <exec_method type="method" name="start"
+      exec="/opt/falcon-img/bin/falcon-img serve --listen %{config/listen} --dir %{config/dir} --offline=%{config/offline}"
+      timeout_seconds="30">
+      <method_context>
+        <method_credential user="root" group="root"
+          privileges="basic,file_dac_read,file_dac_search,!proc_info,!proc_session" />
+        <method_environment>
+          <envvar name="RUST_LOG" value="info" />
+        </method_environment>
+      </method_context>
+    </exec_method>
+    <exec_method type="method" name="stop" exec=":kill" timeout_seconds="30" />
+
+    <property_group name="startd" type="framework">
+      <propval name="duration" type="astring" value="child" />
+    </property_group>
+
+    <property_group name="config" type="application">
+      <!-- Must stay on port 7780 for falcon to discover it by default. -->
+      <propval name="listen" type="astring" value="[::]:7780" />
+      <propval name="dir" type="astring" value="/var/falcon-img" />
+      <!-- Never contact upstream; for air-gapped hosts. -->
+      <propval name="offline" type="boolean" value="false" />
+    </property_group>
+
+    <stability value="Unstable" />
+    <template>
+      <common_name>
+        <loctext xml:lang="C">falcon caching image server</loctext>
+      </common_name>
+    </template>
+  </service>
+</service_bundle>

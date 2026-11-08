@@ -31,6 +31,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 use clap::Parser;
 
+use crate::imgsrv::{
+    Assets, ImgServerConfig, IMG_SERVER_ENV, NO_IMG_DISCOVERY_ENV,
+};
 use crate::{dataset, error::Error, Deployment, Runner, DEFAULT_FALCON_DIR};
 
 pub enum RunMode {
@@ -91,6 +94,38 @@ struct CmdLaunch {
     /// The path of the falcon output directory
     #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
     falcon_dir: Utf8PathBuf,
+
+    #[clap(flatten)]
+    img_server: ImgServerArgs,
+}
+
+/// Options controlling where images, OVMF and propolis-server are downloaded
+/// from.
+#[derive(clap::Args)]
+struct ImgServerArgs {
+    /// Image server to use, as host or host:port (default port 7780). When
+    /// not set, falcon looks for a server named `falcon-img` and downloads
+    /// from upstream if that name does not resolve.
+    #[clap(long, env = IMG_SERVER_ENV, value_name = "HOST[:PORT]")]
+    img_server: Option<String>,
+
+    /// Do not look for an image server; download from upstream sources.
+    #[clap(long, env = NO_IMG_DISCOVERY_ENV)]
+    no_img_discovery: bool,
+}
+
+impl ImgServerArgs {
+    fn apply(&self, r: &mut Runner) {
+        r.set_img_server(self.img_server.clone());
+        r.set_img_discovery(!self.no_img_discovery);
+    }
+
+    fn config(&self) -> ImgServerConfig {
+        ImgServerConfig {
+            server: self.img_server.clone(),
+            discovery: !self.no_img_discovery,
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -99,6 +134,9 @@ struct CmdPreflight {
     /// The path of the falcon output directory
     #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
     falcon_dir: Utf8PathBuf,
+
+    #[clap(flatten)]
+    img_server: ImgServerArgs,
 }
 
 #[derive(Parser)]
@@ -163,6 +201,9 @@ struct CmdHyperstart {
     /// The path of the falcon output directory
     #[clap(short, long, default_value_t = Utf8PathBuf::from(DEFAULT_FALCON_DIR))]
     falcon_dir: Utf8PathBuf,
+
+    #[clap(flatten)]
+    img_server: ImgServerArgs,
 }
 
 #[derive(Parser)]
@@ -293,6 +334,7 @@ where
     match opts.subcmd {
         SubCommand::Preflight(p) => {
             r.set_falcon_dir(Some(p.falcon_dir.to_string()));
+            p.img_server.apply(r);
             preflight(r).await;
             Ok(RunMode::Unspec)
         }
@@ -301,6 +343,7 @@ where
                 r.set_propolis_binary(Some(path));
             }
             r.set_falcon_dir(Some(l.falcon_dir.to_string()));
+            l.img_server.apply(r);
             launch(r).await;
             Ok(RunMode::Launch)
         }
@@ -349,6 +392,7 @@ where
                         &x.name,
                         propolis_binary.clone(),
                         c.falcon_dir.clone().into(),
+                        c.img_server.config(),
                     )
                     .await?;
                 }
@@ -364,6 +408,7 @@ where
                             n,
                             propolis_binary,
                             c.falcon_dir.clone().into(),
+                            c.img_server.config(),
                         )
                         .await?
                     }
@@ -799,14 +844,16 @@ async fn hyperstart(
     name: &str,
     propolis_binary: String,
     falcon_dir: String,
+    img_server: ImgServerConfig,
 ) -> Result<(), Error> {
     let log = create_logger();
+    let assets = Assets::new(img_server, log.clone());
     // read topology
     let mut path: Utf8PathBuf = falcon_dir.clone().into();
     path.push("topology.ron");
     let topo_ron = fs::read_to_string(&path)?;
     let mut d: Deployment = from_str(&topo_ron)?;
-    d.nodes_preflight(&log).await?;
+    d.nodes_preflight(&log, &assets).await?;
     path.pop();
 
     let mut node = None;
