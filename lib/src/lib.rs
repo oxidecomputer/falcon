@@ -1318,9 +1318,8 @@ impl Node {
             info!(log, "image already downloaded: {path}");
             return Ok(());
         }
-        let url = format!(
-            "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com/{iname}"
-        );
+        let asset_base = asset_base();
+        let url = format!("{asset_base}/{iname}");
         info!(log, "trying to download {url}");
 
         download_large_file(url.as_str(), path, log).await?;
@@ -1899,6 +1898,15 @@ pub(crate) fn dataset() -> String {
             } else {
                 "rpool/falcon".to_string()
             }
+        }
+    }
+}
+
+pub(crate) fn asset_base() -> String {
+    match std::env::var("FALCON_ASSET_BASE") {
+        Ok(s) if !s.is_empty() => s,
+        _ => {
+            "https://oxide-falcon-assets.s3.us-west-2.amazonaws.com".to_string()
         }
     }
 }
